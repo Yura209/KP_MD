@@ -1,0 +1,18 @@
+{
+  "name": "stroymarket-coursework",
+  "version": "1.0.0",
+  "description": "Учебный маркетплейс строительных материалов СтройМаркет",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "db:init": "node scripts/bootstrap.js",
+    "check": "node --check server.js && node --check db.js && node --check lib/http.js && node --check lib/auth.js && node --check routes/auth.js && node --check routes/catalog.js && node --check routes/shopper.js && node --check routes/customer-data.js && node --check routes/seller.js && node --check routes/admin.js && node --check public/js/main.js && node --check public/js/store.js && node --check public/js/account.js"
+  },
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  }
+}

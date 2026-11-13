@@ -1,0 +1,6 @@
+const grid=document.getElementById('store-grid');
+const errorBox=document.getElementById('stores-error');
+async function api(url){const response=await fetch(url,{credentials:'same-origin'});if(!response.ok)throw new Error('request failed');return response.json();}
+function make(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;}
+async function loadStores(){try{const stores=await api('/api/stores');grid.replaceChildren();if(!stores.length){grid.append(make('p','muted','Пока нет активных магазинов.'));return;}stores.forEach((store,index)=>{const card=make('article','store-card'),mark=make('div','store-mark',String(index+1).padStart(2,'0')),title=make('h3','',store.name),description=make('p','',store.description||'Магазин товаров для строительства и дома.'),link=make('a','button button-primary','Перейти в каталог');link.href=`/store.html?store=${encodeURIComponent(store.id)}`;card.append(mark,title,description,link);grid.append(card);});}catch(error){grid.replaceChildren();errorBox.hidden=false;}}
+loadStores();
