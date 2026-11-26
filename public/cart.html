@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Корзина — СтройМаркет</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/navigation.js" defer></script>
+    <script src="js/cart.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-row">
+        <a class="brand" href="/">Строй<span>Маркет</span></a>
+        <nav>
+          <a href="/#stores">Магазины</a>
+        </nav>
+        <a class="button button-outline cart-link" href="/cart.html">Корзина <span class="cart-count" data-cart-count hidden>0</span></a>
+        <a class="button button-dark" data-account-link href="/account.html">Войти</a>
+      </div>
+    </header>
+
+    <main class="section cart-page">
+      <div class="container">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ПОКУПКИ</p>
+            <h1>Корзина</h1>
+          </div>
+          <a class="back-link" href="/#stores">← К магазинам</a>
+        </div>
+
+        <p id="cart-message" class="notice" hidden></p>
+
+        <section id="cart-auth-required" class="panel" hidden>
+          <h2>Войдите, чтобы открыть корзину</h2>
+          <p class="muted">Корзина сохраняется в вашем аккаунте.</p>
+          <a class="button button-primary" href="/account.html">Войти или создать аккаунт</a>
+        </section>
+
+        <section id="cart-content" hidden>
+          <div id="cart-list" class="panel-list"></div>
+
+          <form id="checkout-form" class="panel form-grid">
+            <h2 class="wide">Оформление общего заказа</h2>
+            <label class="wide">Адрес доставки<input name="address" required maxlength="500"></label>
+            <label>Телефон для связи<input name="phone" required maxlength="30"></label>
+            <label>Зона доставки<select name="deliveryZone"><option value="city">Калуга, город</option><option value="region">Калужская область</option></select></label>
+            <label class="wide">Способ оплаты<select name="paymentMethod"><option value="online_demo">Онлайн-оплата (учебная имитация)</option><option value="cash_on_delivery">Наличными при получении</option></select></label>
+            <p class="wide muted" id="cart-total"></p>
+            <button type="submit" class="button button-primary">Оформить заказ</button>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <a class="brand brand-light" href="/">Строй<span>Маркет</span></a>
+        <p>Учебный проект · Общая корзина для нескольких магазинов</p>
+      </div>
+    </footer>
+  </body>
+</html>

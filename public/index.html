@@ -1,10 +1,68 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Материалы для строительства и дома в магазинах СтройМаркет"><title>СтройМаркет — строительные товары</title><link rel="stylesheet" href="css/style.css"><script src="js/main.js" defer></script></head>
-<body>
-<header class="site-header"><div class="container header-row"><a class="brand" href="/">Строй<span>Маркет</span></a><nav><a href="/#stores">Магазины</a><a href="/account.html">Кабинет</a></nav><a class="button button-dark" href="/account.html">Войти</a></div></header>
-<main><section class="hero"><div class="container hero-inner"><p class="eyebrow">СТРОИТЕЛЬНЫЙ МАРКЕТПЛЕЙС</p><h1>Всё для строительства<br>и дома в одном месте</h1><p class="hero-copy">Выберите магазин, сравните товары и соберите один заказ из нескольких магазинов.</p><a class="button button-primary" href="#stores">Выбрать магазин</a></div></section>
-<section class="section" id="stores"><div class="container"><div class="section-heading"><div><p class="eyebrow">КАТАЛОГ</p><h2>Магазины СтройМаркет</h2></div><p>У каждого магазина свой ассортимент. Общая корзина сохраняется, когда вы переходите между каталогами.</p></div><div class="store-grid" id="store-grid" aria-live="polite"><p class="muted">Загружаем магазины…</p></div><p class="notice error" id="stores-error" hidden>Не удалось загрузить магазины. Проверьте подключение к базе данных и обновите страницу.</p></div></section>
-<section class="about-band"><div class="container about-grid"><div><p class="eyebrow">КАК ЭТО РАБОТАЕТ</p><h2>Один заказ<br>из разных магазинов</h2></div><p>Каждый продавец подтверждает только товары своего магазина. После подтверждения система резервирует остаток, а администратор отмечает приём товаров на склад и общую доставку.</p></div></section></main>
-<footer class="site-footer"><div class="container footer-row"><a class="brand brand-light" href="/">Строй<span>Маркет</span></a><p>Учебный проект · Калуга · 2026</p></div></footer>
-</body></html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Материалы для строительства и дома в магазинах СтройМаркет">
+    <title>СтройМаркет — строительные товары</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/navigation.js" defer></script>
+    <script src="js/main.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-row">
+        <a class="brand" href="/">Строй<span>Маркет</span></a>
+        <nav>
+          <a href="/#stores">Магазины</a>
+        </nav>
+        <a class="button button-outline cart-link" href="/cart.html">Корзина <span class="cart-count" data-cart-count hidden>0</span></a>
+        <a class="button button-dark" data-account-link href="/account.html">Войти</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero-inner">
+          <p class="eyebrow">СТРОИТЕЛЬНЫЙ МАРКЕТПЛЕЙС</p>
+          <h1>Всё для строительства<br>и дома в одном месте</h1>
+          <p class="hero-copy">Выберите магазин, сравните товары и соберите один заказ из нескольких магазинов.</p>
+          <a class="button button-primary" href="#stores">Выбрать магазин</a>
+        </div>
+      </section>
+
+      <section class="section" id="stores">
+        <div class="container">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">КАТАЛОГ</p>
+              <h2>Магазины СтройМаркет</h2>
+            </div>
+            <p>У каждого магазина свой ассортимент. Общая корзина сохраняется, когда вы переходите между каталогами.</p>
+          </div>
+          <div class="store-grid" id="store-grid" aria-live="polite">
+            <p class="muted">Загружаем магазины…</p>
+          </div>
+          <p class="notice error" id="stores-error" hidden>Не удалось загрузить магазины. Проверьте подключение к базе данных и обновите страницу.</p>
+        </div>
+      </section>
+
+      <section class="about-band">
+        <div class="container about-grid">
+          <div>
+            <p class="eyebrow">КАК ЭТО РАБОТАЕТ</p>
+            <h2>Один заказ<br>из разных магазинов</h2>
+          </div>
+          <p>Каждый продавец подтверждает только товары своего магазина. После подтверждения система резервирует остаток, а администратор отмечает приём товаров на склад и общую доставку.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <a class="brand brand-light" href="/">Строй<span>Маркет</span></a>
+        <p>Учебный проект · Калуга · 2026</p>
+      </div>
+    </footer>
+  </body>
+</html>

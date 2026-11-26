@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "db:init": "node scripts/bootstrap.js",
-    "check": "node --check server.js && node --check db.js && node --check lib/http.js && node --check lib/auth.js && node --check routes/auth.js && node --check routes/catalog.js && node --check routes/shopper.js && node --check routes/customer-data.js && node --check routes/seller.js && node --check routes/admin.js && node --check public/js/main.js && node --check public/js/store.js && node --check public/js/account.js"
+    "check": "node --check server.js && node --check db.js && node --check lib/http.js && node --check lib/auth.js && node --check routes/auth.js && node --check routes/catalog.js && node --check routes/shopper.js && node --check routes/customer-data.js && node --check routes/seller.js && node --check routes/admin.js && node --check public/js/main.js && node --check public/js/navigation.js && node --check public/js/cart.js && node --check public/js/store.js && node --check public/js/account.js"
   },
   "license": "UNLICENSED",
   "type": "commonjs",

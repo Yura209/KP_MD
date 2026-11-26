@@ -1,46 +1,961 @@
-const $=selector=>document.querySelector(selector);
-let csrfToken='';let user=null;let setupRequired=false;
-function node(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
-function button(text,kind='button-outline',action){const b=node('button',`button ${kind}`,text);b.type='button';if(action)b.addEventListener('click',action);return b;}
-function money(value){return `${Number(value||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₽`;}
-function flash(text,error=false){const box=$('#flash');box.textContent=text;box.classList.toggle('error',error);box.hidden=false;window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>box.hidden=true,5000);}
-async function api(url,options={}){const headers={...(options.headers||{})};if(options.body){headers['Content-Type']='application/json';headers['X-CSRF-Token']=csrfToken;}const r=await fetch(url,{...options,headers,credentials:'same-origin'});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||`Ошибка ${r.status}`);return data;}
-async function run(action){try{return await action();}catch(e){flash(e.message,true);return null;}}
-function card(title,subtitle){const e=node('article','list-card');if(title)e.append(node('h4','',title));if(subtitle)e.append(node('p','',subtitle));return e;}
-function formObject(form){return Object.fromEntries(new FormData(form).entries());}
-function statusTag(status){const c=status==='cancelled'||status==='rejected'?'tag tag-danger':status==='pending_seller'||status==='pending'?'tag tag-warning':'tag';return node('span',c,status.replaceAll('_',' '));}
-async function setup(){try{const s=await api('/api/session');csrfToken=s.csrfToken;user=s.user;const state=await api('/api/setup/status');setupRequired=state.setupRequired;renderAuth();}catch(e){flash('Не удалось подключиться к серверу. Проверьте его запуск и базу данных.',true);}}
-function renderAuth(){const signed=Boolean(user);$('#auth-area').hidden=signed;$('#profile-area').hidden=!signed;$('#setup-area').hidden=!setupRequired||signed;if(!signed){$('#page-title').textContent='Вход или регистрация';$('#header-user').textContent='';return;}$('#page-title').textContent='Личный кабинет';$('#header-user').textContent=user.fullName;$('#profile-name').textContent=`${user.fullName} · ${user.email}`;const roleNames={customer:'Покупатель',seller:'Продавец',admin:'Администратор'};$('#profile-role').textContent=roleNames[user.role]||user.role;$('#customer-panel').hidden=user.role!=='customer';$('#seller-panel').hidden=user.role!=='seller';$('#admin-panel').hidden=user.role!=='admin';if(user.role==='customer')loadCustomer();if(user.role==='seller')loadSeller();if(user.role==='admin')loadAdmin();}
-$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const result=await run(async()=>api('/api/login',{method:'POST',body:JSON.stringify(formObject(e.currentTarget))}));if(result){csrfToken=result.csrfToken;user=result.user;renderAuth();flash('Вы вошли в систему.');}});
-$('#register-form').addEventListener('submit',async e=>{e.preventDefault();const result=await run(async()=>api('/api/register',{method:'POST',body:JSON.stringify(formObject(e.currentTarget))}));if(result){csrfToken=result.csrfToken;user=result.user;renderAuth();flash('Аккаунт создан. Добро пожаловать!');}});
-$('#logout-button').addEventListener('click',async()=>{await run(()=>api('/api/logout',{method:'POST',body:JSON.stringify({})}));user=null;await setup();flash('Вы вышли из системы.');});
-function clear(el){el.replaceChildren();}
-async function loadCustomer(){await Promise.all([loadCart(),loadOrders(),loadSaved('favorites'),loadNotifications(),loadReturns()]);}
-async function loadCart(){const host=$('#cart-list');try{const items=await api('/api/cart');clear(host);let total=0;if(!items.length){host.append(node('p','muted','Корзина пока пуста. Выберите товары в каталоге магазина.'));$('#checkout-form').hidden=true;$('#cart-total').textContent='';return;}$('#checkout-form').hidden=false;const groups=new Map();for(const item of items){if(!groups.has(item.store_name))groups.set(item.store_name,[]);groups.get(item.store_name).push(item);total+=Number(item.line_total);}for(const [store,rows] of groups){const section=card(store);const list=node('div','sub-list');for(const item of rows){const row=node('div','sub-item');row.append(node('span','',`${item.name} · ${item.quantity} ${item.unit_name} × ${money(item.price)}`),node('strong','',money(item.line_total)));const controls=node('div','inline-actions');const qty=node('input');qty.type='number';qty.min='0.001';qty.step='0.001';qty.value=item.quantity;qty.setAttribute('aria-label',`Количество ${item.name}`);qty.addEventListener('change',async()=>{await run(()=>api(`/api/cart/${item.product_id}`,{method:'PATCH',body:JSON.stringify({quantity:Number(qty.value)})}));loadCart();});controls.append(qty,button('Удалить','button-outline',async()=>{await run(()=>api(`/api/cart/${item.product_id}`,{method:'DELETE',body:JSON.stringify({})}));loadCart();}));list.append(row,controls);}section.append(list);host.append(section);}const weight=items.reduce((sum,i)=>sum+Number(i.weight_kg||0)*Number(i.quantity),0),volume=items.reduce((sum,i)=>sum+(Number(i.length_cm||0)*Number(i.width_cm||0)*Number(i.height_cm||0)*Number(i.quantity))/1000000,0),maxSide=items.reduce((m,i)=>Math.max(m,Number(i.length_cm||0),Number(i.width_cm||0),Number(i.height_cm||0)),0),zone=$('#checkout-form [name=deliveryZone]').value||'city';const estimate=await api(`/api/shipping/estimate?weightKg=${weight}&volumeM3=${volume}&maxSideCm=${maxSide}&zone=${zone}`);$('#cart-total').textContent=estimate.available?`Товары: ${money(total)} · доставка: ${money(estimate.cost)} · итого: ${money(total+Number(estimate.cost))}`:estimate.warning;}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-$('#checkout-form').addEventListener('submit',async e=>{e.preventDefault();const data=formObject(e.currentTarget);const result=await run(()=>api('/api/orders',{method:'POST',body:JSON.stringify(data)}));if(result){flash(`Заказ ${result.number} оформлен и передан магазинам.`);e.currentTarget.reset();await loadCustomer();}});
-const orderStatus={awaiting_sellers:'Ожидает подтверждения магазинов',partially_confirmed:'Подтверждён частично',awaiting_payment:'Ожидает оплаты',awaiting_hub:'Ожидает поступления на склад',at_hub:'На складе',shipped:'Отправлен',delivered:'Доставлен',completed:'Завершён',cancelled:'Отменён'};
-async function loadOrders(){const host=$('#orders-list');try{const orders=await api('/api/orders');clear(host);if(!orders.length){host.append(node('p','muted','Заказов пока нет.'));return;}orders.forEach(o=>{const c=card(`${o.number} · ${money(o.total)}`,`${new Date(o.created_at).toLocaleString('ru-RU')} · ${orderStatus[o.status]||o.status} · ${o.payment_method==='online_demo'?'онлайн':'наличными'}`);c.classList.add('order-card');const actions=node('div','inline-actions');if(o.status==='awaiting_payment'&&o.payment_method==='online_demo')actions.append(button('Оплатить (демо)','button-primary',async()=>{const r=await run(()=>api(`/api/orders/${o.id}/pay`,{method:'POST',body:JSON.stringify({})}));if(r){flash('Учебная оплата отмечена как успешная.');loadOrders();}}));if(!['shipped','delivered','completed','cancelled'].includes(o.status))actions.append(button('Отменить заказ','button-danger',async()=>{const reason=prompt('Укажите причину отмены:','Другая причина');if(!reason)return;const r=await run(()=>api(`/api/orders/${o.id}/cancel`,{method:'POST',body:JSON.stringify({reason})}));if(r){flash('Заказ отменён.');loadOrders();}}));if(o.status==='delivered')actions.append(button('Подтвердить получение','button-primary',async()=>{const r=await run(()=>api(`/api/orders/${o.id}/confirm-received`,{method:'POST',body:JSON.stringify({})}));if(r){flash('Получение подтверждено.');loadOrders();}}));if(o.status==='completed')actions.append(button('Повторить заказ','button-outline',async()=>{const r=await run(()=>api(`/api/orders/${o.id}/reorder`,{method:'POST',body:JSON.stringify({})}));if(r){flash(`Доступных товаров добавлено в корзину: ${r.added}.`);loadCart();}}));c.append(actions);for(const part of o.parts||[]){const group=node('div','sub-list'),head=node('div','sub-item');head.append(node('strong','',part.store),statusTag(part.status));group.append(head);for(const item of part.items||[]){const row=node('div','sub-item',`${item.name} · ${item.quantity} ${item.unit} · ${money(item.lineTotal)}`);group.append(row);if(o.status==='completed'){const buttons=node('div','inline-actions');buttons.append(button('Оставить отзыв','button-outline',async()=>{const rating=Number(prompt('Оценка от 1 до 5:','5'));if(!rating)return;const body=prompt('Текст отзыва:');if(!body)return;const r=await run(()=>api(`/api/order-items/${item.id}/review`,{method:'POST',body:JSON.stringify({rating,body})}));if(r)flash('Отзыв опубликован.');}),button('Заявка на возврат','button-outline',async()=>{const reason=prompt('Причина возврата:');if(!reason)return;const description=prompt('Комментарий (необязательно):','')||'';const r=await run(()=>api(`/api/order-items/${item.id}/returns`,{method:'POST',body:JSON.stringify({reason,description})}));if(r){flash('Заявка направлена администратору.');loadReturns();}}));group.append(buttons);}}c.append(group);}if(x.status==='approved'&&x.payment_method==='cash_on_delivery'&&!x.refund_recorded)c.append(button('Зафиксировать возврат денег','button-outline',async()=>{const r=await run(()=>api(`/api/admin/returns/${x.id}/refund`,{method:'POST',body:JSON.stringify({})}));if(r){flash('Наличный возврат зафиксирован.');loadAdminReturns();}}));host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-async function loadSaved(type){const host=$('#saved-list');try{const items=await api(`/api/me/${type}`);clear(host);if(!items.length){host.append(node('p','muted',type==='favorites'?'В избранном пока пусто.':'Список сравнения пуст.'));return;}items.forEach(p=>{const c=card(p.name,`${p.store_name} · ${money(p.price)} · ${p.stock} ${p.unit_name}`);c.append(button('Удалить','button-outline',async()=>{const r=await run(()=>api(`/api/me/${type}/${p.id}`,{method:'DELETE',body:JSON.stringify({})}));if(r)loadSaved(type);}));host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-$('#show-favorites').addEventListener('click',()=>loadSaved('favorites'));$('#show-comparison').addEventListener('click',()=>loadSaved('comparisons'));
-async function loadNotifications(){const host=$('#notifications-list');try{const rows=await api('/api/notifications');clear(host);if(!rows.length){host.append(node('p','muted','Новых уведомлений нет.'));return;}rows.forEach(n=>{const c=card(n.title,`${n.body} · ${new Date(n.created_at).toLocaleString('ru-RU')}`);if(!n.is_read)c.append(button('Отметить прочитанным','button-outline',async()=>{await run(()=>api(`/api/notifications/${n.id}/read`,{method:'PATCH',body:JSON.stringify({})}));loadNotifications();}));host.append(c);});}catch(e){host.append(node('p','muted',e.message));}}
-async function loadReturns(){const host=$('#returns-list');try{const rows=await api('/api/me/returns');clear(host);if(!rows.length){host.append(node('p','muted','Заявок нет.'));return;}rows.forEach(r=>host.append(card(`${r.number} · ${r.product_name}`,`${r.reason} · ${r.status}${r.admin_comment?` · ${r.admin_comment}`:''}`)));}catch(e){clear(host);host.append(node('p','muted',e.message));}}
-$('#refresh-customer').addEventListener('click',loadCustomer);
-async function loadSeller(){await Promise.all([loadSellerProducts(),loadSellerOrders(),loadSellerStats(),loadProductOptions(),loadSellerReviews()]);}
-async function loadProductOptions(){try{const [cats,units]=await Promise.all([api('/api/categories'),api('/api/units')]);const c=$('#product-category'),u=$('#product-unit');clear(c);clear(u);cats.forEach(x=>{const o=node('option','',x.name);o.value=x.id;c.append(o);});units.forEach(x=>{const o=node('option','',`${x.name} (${x.short_name})`);o.value=x.id;u.append(o);});}catch(e){flash(e.message,true);}}
-async function loadSellerProducts(){const host=$('#seller-products');try{const items=await api('/api/seller/products');clear(host);if(!items.length){host.append(node('p','muted','В магазине пока нет товаров.'));return;}items.forEach(p=>{const c=card(p.name,`${p.sku} · ${money(p.price)} · остаток ${p.stock} ${p.unit_name} · ${p.is_active?'активен':'скрыт'}`),actions=node('div','inline-actions');actions.append(button('Цена и остаток','button-outline',async()=>{const price=prompt('Новая цена, ₽:',p.price),stock=prompt('Новый доступный остаток:',p.stock);if(price===null||stock===null)return;const r=await run(()=>api(`/api/seller/products/${p.id}`,{method:'PATCH',body:JSON.stringify({price:Number(price),stock:Number(stock)})}));if(r)loadSellerProducts();}),button(p.is_active?'Скрыть':'Включить','button-outline',async()=>{const r=await run(()=>api(`/api/seller/products/${p.id}`,{method:'PATCH',body:JSON.stringify({isActive:!p.is_active})}));if(r)loadSellerProducts();}));c.append(actions);host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-$('#product-form').addEventListener('submit',async e=>{e.preventDefault();const data=formObject(e.currentTarget);for(const k of ['price','stock','categoryId','unitId'])data[k]=Number(data[k]);try{data.characteristics=data.characteristics.trim()?JSON.parse(data.characteristics):{};}catch{flash('Характеристики должны быть корректным JSON-объектом.',true);return;}const result=await run(()=>api('/api/seller/products',{method:'POST',body:JSON.stringify(data)}));if(result){e.currentTarget.reset();flash('Товар добавлен.');loadSeller();}});
-async function loadSellerOrders(){const host=$('#seller-orders');try{const orders=await api('/api/seller/orders');clear(host);if(!orders.length){host.append(node('p','muted','Новых частей заказа нет.'));return;}orders.forEach(p=>{const c=card(`${p.number} · ${p.customer_name}`,`${p.created_at?new Date(p.created_at).toLocaleDateString('ru-RU'):''} · `),head=node('div','inline-actions');head.append(statusTag(p.status));c.append(head);(p.items||[]).forEach(i=>c.append(node('p','',`${i.name} · ${i.quantity} ${i.unit} · ${money(i.lineTotal)}`)));const actions=node('div','inline-actions');const allowed={pending_seller:[['Подтвердить','confirmed'],['Отменить','cancelled']],confirmed:[['Готовится','preparing'],['Готов к передаче','ready'],['Отменить','cancelled']],preparing:[['Готов к передаче','ready'],['Отменить','cancelled']]};(allowed[p.status]||[]).forEach(([label,status])=>actions.append(button(label,status==='cancelled'?'button-danger':'button-primary',async()=>{const r=await run(()=>api(`/api/seller/parts/${p.id}`,{method:'PATCH',body:JSON.stringify({status})}));if(r){flash('Статус заказа изменён.');loadSeller();}})));c.append(actions);host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-async function loadSellerStats(){const host=$('#seller-stats');try{const data=await api('/api/seller/stats');clear(host);[['Заказов',data.summary.orders],['Продано единиц',data.summary.units_sold],['Сумма продаж',money(data.summary.sales)],['Низкий остаток',data.lowStock.length]].forEach(([label,value])=>{const c=node('div','stat-card');c.append(node('strong','',String(value)),node('span','',label));host.append(c);});}catch(e){clear(host);host.append(node('p','muted',e.message));}}
-$('#refresh-seller').addEventListener('click',loadSeller);
-async function loadAdmin(){await Promise.all([loadAdminOverview(),loadAdminStores(),loadAdminOrders(),loadAdminReturns(),loadAdminUsers(),loadAdminCategories()]);}
-async function loadAdminOverview(){const host=$('#admin-stats');try{const d=await api('/api/admin/overview');clear(host);[['Магазинов',d.stores],['Активных товаров',d.products],['Заявок на возврат',d.openReturns],['Заказов',d.orders.reduce((s,x)=>s+x.count,0)]].forEach(([label,value])=>{const c=node('div','stat-card');c.append(node('strong','',String(value)),node('span','',label));host.append(c);});}catch(e){clear(host);host.append(node('p','muted',e.message));}}
-async function loadAdminStores(){const host=$('#admin-stores'),select=$('#seller-store');try{const stores=await api('/api/admin/stores');clear(host);clear(select);stores.forEach(s=>{const c=card(s.name,`${s.slug} · ${s.address||'Адрес не указан'} · ${s.is_active?'активен':'заблокирован'}`),b=button(s.is_active?'Заблокировать':'Активировать',s.is_active?'button-danger':'button-outline',async()=>{const r=await run(()=>api(`/api/admin/stores/${s.id}`,{method:'PATCH',body:JSON.stringify({isActive:!s.is_active})}));if(r)loadAdminStores();});c.append(b);host.append(c);if(s.is_active){const o=node('option','',s.name);o.value=s.id;select.append(o);}});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-$('#store-form').addEventListener('submit',async e=>{e.preventDefault();const r=await run(()=>api('/api/admin/stores',{method:'POST',body:JSON.stringify(formObject(e.currentTarget))}));if(r){e.currentTarget.reset();flash('Магазин подключён.');loadAdmin();}});
-$('#seller-form').addEventListener('submit',async e=>{e.preventDefault();const data=formObject(e.currentTarget);data.storeId=Number(data.storeId);const r=await run(()=>api('/api/admin/sellers',{method:'POST',body:JSON.stringify(data)}));if(r){e.currentTarget.reset();flash('Учётная запись продавца создана.');loadAdminUsers();}});
-async function loadAdminOrders(){const host=$('#admin-orders');try{const rows=await api('/api/admin/orders');clear(host);if(!rows.length){host.append(node('p','muted','Заказов пока нет.'));return;}rows.forEach(o=>{const c=card(`${o.number} · ${o.customer_name}`,`${orderStatus[o.status]||o.status} · ${money(o.total)} · ${o.address}`),actions=node('div','inline-actions');const events={awaiting_hub:[['Принят на склад','received_at_hub']],awaiting_payment:o.payment_method==='cash_on_delivery'?[['Принят на склад','received_at_hub']]:[],partially_confirmed:[['Принят на склад','received_at_hub']],at_hub:[['Отправить покупателю','shipped']],shipped:[['Отметить доставленным','delivered'],...(o.payment_method==='cash_on_delivery'&&o.payment_status!=='paid'?[['Получена наличная оплата','cash_received']]:[])],delivered:[['Завершить вручную','admin_completed']]};(events[o.status]||[]).forEach(([label,eventType])=>actions.append(button(label,'button-outline',async()=>{const r=await run(()=>api(`/api/admin/orders/${o.id}/delivery`,{method:'POST',body:JSON.stringify({eventType})}));if(r){flash('Статус доставки записан.');loadAdminOrders();}})));c.append(actions);host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-async function loadAdminReturns(){const host=$('#admin-returns');try{const rows=await api('/api/admin/returns');clear(host);if(!rows.length){host.append(node('p','muted','Заявок на возврат нет.'));return;}rows.forEach(x=>{const c=card(`${x.number} · ${x.product_name} · ${x.customer_name}`,`${x.reason} · ${x.description||''} · ${x.status}`);if(x.status==='pending'){const actions=node('div','inline-actions');for(const [label,status] of [['Одобрить','approved'],['Отклонить','rejected']])actions.append(button(label,status==='approved'?'button-primary':'button-danger',async()=>{const comment=prompt('Комментарий администратора:','')||'';const r=await run(()=>api(`/api/admin/returns/${x.id}`,{method:'PATCH',body:JSON.stringify({status,comment})}));if(r){flash('Решение по возврату сохранено.');loadAdminReturns();}}));c.append(actions);}if(x.status==='approved'&&x.payment_method==='cash_on_delivery'&&!x.refund_recorded)c.append(button('Зафиксировать возврат денег','button-outline',async()=>{const r=await run(()=>api(`/api/admin/returns/${x.id}/refund`,{method:'POST',body:JSON.stringify({})}));if(r){flash('Наличный возврат зафиксирован.');loadAdminReturns();}}));host.append(c);});}catch(e){clear(host);host.append(node('p','notice error',e.message));}}
-async function loadAdminUsers(){const host=$('#admin-users');try{const rows=await api('/api/admin/users');clear(host);rows.forEach(u=>{const c=card(`${u.full_name} · ${u.role}`,`${u.email} · ${u.is_active?'активен':'заблокирован'}`);if(u.id!==user.id)c.append(button(u.is_active?'Заблокировать':'Разблокировать',u.is_active?'button-danger':'button-outline',async()=>{const r=await run(()=>api(`/api/admin/users/${u.id}`,{method:'PATCH',body:JSON.stringify({isActive:!u.is_active})}));if(r)loadAdminUsers();}));host.append(c);});}catch(e){clear(host);host.append(node('p','muted',e.message));}}
-async function loadAdminCategories(){try{let host=$('#admin-categories');if(!host){host=node('div','stack-list');host.id='admin-categories';const parent=$('#admin-panel .dashboard-grid section:last-child');const heading=node('h3','','Категории');const add=button('Добавить категорию','button-outline',async()=>{const name=prompt('Название категории:');if(!name)return;const r=await run(()=>api('/api/admin/categories',{method:'POST',body:JSON.stringify({name})}));if(r)loadAdminCategories();});parent.append(heading,add,host);}const rows=await api('/api/admin/categories');clear(host);rows.forEach(x=>{const c=card(x.name,x.is_active?'активна':'скрыта');c.append(button(x.is_active?'Скрыть':'Включить','button-outline',async()=>{const r=await run(()=>api(`/api/admin/categories/${x.id}`,{method:'PATCH',body:JSON.stringify({isActive:!x.is_active})}));if(r)loadAdminCategories();}));host.append(c);});}catch(e){const host=$('#admin-categories');if(host)host.append(node('p','muted',e.message));}}
-$('#shipping-form').addEventListener('submit',async e=>{e.preventDefault();const data=formObject(e.currentTarget);data.baseFee=Number(data.baseFee);data.perKg=Number(data.perKg);data.maxWeightKg=Number(data.maxWeightKg);data.cityZoneFee=Number(data.cityZoneFee);data.regionZoneFee=Number(data.regionZoneFee);data.maxDimensionCm=Number(data.maxDimensionCm);data.maxVolumeM3=Number(data.maxVolumeM3);const r=await run(()=>api('/api/admin/shipping',{method:'PATCH',body:JSON.stringify(data)}));if(r)flash('Тариф доставки сохранён.');});
-$('#refresh-admin').addEventListener('click',loadAdmin);
-$('#setup-form').addEventListener('submit',async e=>{e.preventDefault();const result=await run(()=>api('/api/setup/admin',{method:'POST',body:JSON.stringify(formObject(e.currentTarget))}));if(result){csrfToken=result.csrfToken;user=result.user;setupRequired=false;renderAuth();flash('Администратор создан. Теперь можно подключать магазины и продавцов.');}});setup();
+const $ = selector => document.querySelector(selector);
+let csrfToken = '';
+let user = null;
+let setupRequired = false;
+function node(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function button(text, kind = 'button-outline', action) {
+  const b = node('button', `button ${kind}`, text);
+  b.type = 'button';
+  if (action) b.addEventListener('click', action);
+  return b;
+}
+function money(value) {
+  return `${Number(value||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₽`;
+}
+function flash(text, error = false) {
+  const box = $('#flash');
+  box.textContent = text;
+  box.classList.toggle('error', error);
+  box.hidden = false;
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
+  setTimeout(() => box.hidden = true, 5000);
+}
+async function api(url, options = {}) {
+  const headers = {
+    ...(options.headers || {})
+  };
+  if (options.body) {
+    headers['Content-Type'] = 'application/json';
+    headers['X-CSRF-Token'] = csrfToken;
+  }
+  const r = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'same-origin'
+  });
+  const data = await r.json().catch (() => ({}));
+  if (!r.ok) throw new Error(data.error || `Ошибка ${r.status}`);
+  return data;
+}
+async function run(action) {
+  try {
+    return await action();
+  } catch (e) {
+    flash(e.message, true);
+    return null;
+  }
+}
+function card(title, subtitle) {
+  const e = node('article', 'list-card');
+  if (title) e.append(node('h4', '', title));
+  if (subtitle) e.append(node('p', '', subtitle));
+  return e;
+}
+function formObject(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+function statusTag(status) {
+  const c = status === 'cancelled' || status === 'rejected' ? 'tag tag-danger': status === 'pending_seller' || status === 'pending' ? 'tag tag-warning': 'tag';
+  return node('span', c, status.replaceAll('_', ' '));
+}
+async function setup() {
+  try {
+    const s = await api('/api/session');
+    csrfToken = s.csrfToken;
+    user = s.user;
+    const state = await api('/api/setup/status');
+    setupRequired = state.setupRequired;
+    renderAuth();
+  } catch (e) {
+    flash('Не удалось подключиться к серверу. Проверьте его запуск и базу данных.', true);
+  }
+}
+function renderAuth() {
+  const signed = Boolean(user);
+  window.dispatchEvent(new CustomEvent('session:updated', {
+    detail: {
+      user
+    }
+  }));
+  $('#auth-area').hidden = signed;
+  $('#profile-area').hidden = !signed;
+  $('#setup-area').hidden = !setupRequired || signed;
+  if (!signed) {
+    $('#page-title').textContent = 'Вход или регистрация';
+    $('#header-user').textContent = '';
+    return;
+  }
+  $('#page-title').textContent = 'Личный кабинет';
+  $('#header-user').textContent = user.fullName;
+  $('#profile-name').textContent = `${user.fullName} · ${user.email}`;
+  const roleNames = {
+    customer: 'Покупатель',
+    seller: 'Продавец',
+    admin: 'Администратор'
+  };
+  $('#profile-role').textContent = roleNames[user.role] || user.role;
+  $('#customer-panel').hidden = user.role !== 'customer';
+  $('#seller-panel').hidden = user.role !== 'seller';
+  $('#admin-panel').hidden = user.role !== 'admin';
+  if (user.role === 'customer') loadCustomer();
+  if (user.role === 'seller') loadSeller();
+  if (user.role === 'admin') loadAdmin();
+}
+$('#login-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = await run(async () => api('/api/login', {
+    method: 'POST',
+    body: JSON.stringify(formObject(e.currentTarget))
+  }));
+  if (result) {
+    csrfToken = result.csrfToken;
+    user = result.user;
+    renderAuth();
+    flash('Вы вошли в систему.');
+  }
+});
+$('#register-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = await run(async () => api('/api/register', {
+    method: 'POST',
+    body: JSON.stringify(formObject(e.currentTarget))
+  }));
+  if (result) {
+    csrfToken = result.csrfToken;
+    user = result.user;
+    renderAuth();
+    flash('Аккаунт создан. Добро пожаловать!');
+  }
+});
+$('#logout-button').addEventListener('click', async () => {
+  await run(() => api('/api/logout', {
+    method: 'POST',
+    body: JSON.stringify({})
+  }));
+  user = null;
+  await setup();
+  flash('Вы вышли из системы.');
+});
+function clear(el) {
+  el.replaceChildren();
+}
+async function loadCustomer() {
+  await Promise.all([
+    loadOrders(),
+    loadSaved('favorites'),
+    loadNotifications(),
+    loadReturns()
+  ]);
+}
+const orderStatus = {
+  awaiting_sellers: 'Ожидает подтверждения магазинов',
+  partially_confirmed: 'Подтверждён частично',
+  awaiting_payment: 'Ожидает оплаты',
+  awaiting_hub: 'Ожидает поступления на склад',
+  at_hub: 'На складе',
+  shipped: 'Отправлен',
+  delivered: 'Доставлен',
+  completed: 'Завершён',
+  cancelled: 'Отменён'
+};
+async function loadOrders() {
+  const host = $('#orders-list');
+  try {
+    const orders = await api('/api/orders');
+    clear(host);
+    if (!orders.length) {
+      host.append(node('p', 'muted', 'Заказов пока нет.'));
+      return;
+    }
+    orders.forEach(o => {
+      const c = card(`${o.number} · ${money(o.total)}`, `${new Date(o.created_at).toLocaleString('ru-RU')} · ${orderStatus[o.status]||o.status} · ${o.payment_method==='online_demo'?'онлайн':'наличными'}`);
+      c.classList.add('order-card');
+      const actions = node('div', 'inline-actions');
+      if (o.status === 'awaiting_payment' && o.payment_method === 'online_demo') actions.append(button('Оплатить (демо)', 'button-primary', async () => {
+        const r = await run(() => api(`/api/orders/${o.id}/pay`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        }));
+        if (r) {
+          flash('Учебная оплата отмечена как успешная.');
+          loadOrders();
+        }
+      }));
+      if (! [
+        'shipped',
+        'delivered',
+        'completed',
+        'cancelled'
+      ].includes(o.status)) actions.append(button('Отменить заказ', 'button-danger', async () => {
+        const reason = prompt('Укажите причину отмены:', 'Другая причина');
+        if (!reason) return;
+        const r = await run(() => api(`/api/orders/${o.id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason
+          })
+        }));
+        if (r) {
+          flash('Заказ отменён.');
+          loadOrders();
+        }
+      }));
+      if (o.status === 'delivered') actions.append(button('Подтвердить получение', 'button-primary', async () => {
+        const r = await run(() => api(`/api/orders/${o.id}/confirm-received`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        }));
+        if (r) {
+          flash('Получение подтверждено.');
+          loadOrders();
+        }
+      }));
+      if (o.status === 'completed') actions.append(button('Повторить заказ', 'button-outline', async () => {
+        const r = await run(() => api(`/api/orders/${o.id}/reorder`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        }));
+        if (r) {
+          flash(`Доступных товаров добавлено в корзину: ${r.added}.`);
+          window.location.assign('/cart.html');
+        }
+      }));
+      c.append(actions);
+      for (const part of o.parts || []) {
+        const group = node('div', 'sub-list'),
+        head = node('div', 'sub-item');
+        head.append(node('strong', '', part.store), statusTag(part.status));
+        group.append(head);
+        for (const item of part.items || []) {
+          const row = node('div', 'sub-item', `${item.name} · ${item.quantity} ${item.unit} · ${money(item.lineTotal)}`);
+          group.append(row);
+          if (o.status === 'completed') {
+            const buttons = node('div', 'inline-actions');
+            buttons.append(button('Оставить отзыв', 'button-outline', async () => {
+              const rating = Number(prompt('Оценка от 1 до 5:', '5'));
+              if (!rating) return;
+              const body = prompt('Текст отзыва:');
+              if (!body) return;
+              const r = await run(() => api(`/api/order-items/${item.id}/review`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  rating,
+                  body
+                })
+              }));
+              if (r) flash('Отзыв опубликован.');
+            }), button('Заявка на возврат', 'button-outline', async () => {
+              const reason = prompt('Причина возврата:');
+              if (!reason) return;
+              const description = prompt('Комментарий (необязательно):', '') || '';
+              const r = await run(() => api(`/api/order-items/${item.id}/returns`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  reason,
+                  description
+                })
+              }));
+              if (r) {
+                flash('Заявка направлена администратору.');
+                loadReturns();
+              }
+            }));
+            group.append(buttons);
+          }
+        }
+        c.append(group);
+      }
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+async function loadSaved(type) {
+  const host = $('#saved-list');
+  try {
+    const items = await api(`/api/me/${type}`);
+    clear(host);
+    if (!items.length) {
+      host.append(node('p', 'muted', type === 'favorites' ? 'В избранном пока пусто.': 'Список сравнения пуст.'));
+      return;
+    }
+    items.forEach(p => {
+      const c = card(p.name, `${p.store_name} · ${money(p.price)} · ${p.stock} ${p.unit_name}`);
+      c.append(button('Удалить', 'button-outline', async () => {
+        const r = await run(() => api(`/api/me/${type}/${p.id}`, {
+          method: 'DELETE',
+          body: JSON.stringify({})
+        }));
+        if (r) loadSaved(type);
+      }));
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+$('#show-favorites').addEventListener('click', () => loadSaved('favorites'));
+$('#show-comparison').addEventListener('click', () => loadSaved('comparisons'));
+async function loadNotifications() {
+  const host = $('#notifications-list');
+  try {
+    const rows = await api('/api/notifications');
+    clear(host);
+    if (!rows.length) {
+      host.append(node('p', 'muted', 'Новых уведомлений нет.'));
+      return;
+    }
+    rows.forEach(n => {
+      const c = card(n.title, `${n.body} · ${new Date(n.created_at).toLocaleString('ru-RU')}`);
+      if (!n.is_read) c.append(button('Отметить прочитанным', 'button-outline', async () => {
+        await run(() => api(`/api/notifications/${n.id}/read`, {
+          method: 'PATCH',
+          body: JSON.stringify({})
+        }));
+        loadNotifications();
+      }));
+      host.append(c);
+    });
+  } catch (e) {
+    host.append(node('p', 'muted', e.message));
+  }
+}
+async function loadReturns() {
+  const host = $('#returns-list');
+  try {
+    const rows = await api('/api/me/returns');
+    clear(host);
+    if (!rows.length) {
+      host.append(node('p', 'muted', 'Заявок нет.'));
+      return;
+    }
+    rows.forEach(r => host.append(card(`${r.number} · ${r.product_name}`, `${r.reason} · ${r.status}${r.admin_comment?` · $ {
+      r.admin_comment
+    }
+    `:''}`)));
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'muted', e.message));
+  }
+}
+$('#refresh-customer').addEventListener('click', loadCustomer);
+async function loadSeller() {
+  await Promise.all([
+    loadSellerProducts(),
+    loadSellerOrders(),
+    loadSellerStats(),
+    loadProductOptions(),
+    loadSellerReviews()
+  ]);
+}
+async function loadProductOptions() {
+  try {
+    const [
+      cats,
+      units
+    ] = await Promise.all([
+      api('/api/categories'),
+      api('/api/units')
+    ]);
+    const c = $('#product-category'),
+    u = $('#product-unit');
+    clear(c);
+    clear(u);
+    cats.forEach(x => {
+      const o = node('option', '', x.name);
+      o.value = x.id;
+      c.append(o);
+    });
+    units.forEach(x => {
+      const o = node('option', '', `${x.name} (${x.short_name})`);
+      o.value = x.id;
+      u.append(o);
+    });
+  } catch (e) {
+    flash(e.message, true);
+  }
+}
+async function loadSellerProducts() {
+  const host = $('#seller-products');
+  try {
+    const items = await api('/api/seller/products');
+    clear(host);
+    if (!items.length) {
+      host.append(node('p', 'muted', 'В магазине пока нет товаров.'));
+      return;
+    }
+    items.forEach(p => {
+      const c = card(p.name, `${p.sku} · ${money(p.price)} · остаток ${p.stock} ${p.unit_name} · ${p.is_active?'активен':'скрыт'}`),
+      actions = node('div', 'inline-actions');
+      actions.append(button('Цена и остаток', 'button-outline', async () => {
+        const price = prompt('Новая цена, ₽:', p.price),
+        stock = prompt('Новый доступный остаток:', p.stock);
+        if (price === null || stock === null) return;
+        const r = await run(() => api(`/api/seller/products/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            price: Number(price),
+            stock: Number(stock)
+          })
+        }));
+        if (r) loadSellerProducts();
+      }), button(p.is_active ? 'Скрыть': 'Включить', 'button-outline', async () => {
+        const r = await run(() => api(`/api/seller/products/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            isActive: !p.is_active
+          })
+        }));
+        if (r) loadSellerProducts();
+      }));
+      c.append(actions);
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+const productImageFile = $('#product-image-file');
+const productImagePreview = $('#product-image-preview');
+let productPreviewUrl = null;
+
+productImageFile.addEventListener('change', () => {
+  const file = productImageFile.files[0];
+  if (productPreviewUrl) URL.revokeObjectURL(productPreviewUrl);
+  productPreviewUrl = null;
+  productImagePreview.hidden = true;
+
+  if (!file) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+    productImageFile.value = '';
+    flash('Выберите изображение PNG, JPEG или WebP размером до 2 МБ.', true);
+    return;
+  }
+
+  productPreviewUrl = URL.createObjectURL(file);
+  productImagePreview.src = productPreviewUrl;
+  productImagePreview.hidden = false;
+});
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('error', () => reject(new Error('Не удалось прочитать изображение.')));
+    reader.readAsDataURL(file);
+  });
+}
+
+$('#product-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const submit = form.querySelector('[type=submit]');
+  const data = formObject(form);
+  submit.disabled = true;
+
+  try {
+    for (const key of ['price', 'stock', 'categoryId', 'unitId']) {
+      data[key] = Number(data[key]);
+    }
+
+    data.characteristics = data.characteristics.trim()
+      ? JSON.parse(data.characteristics)
+      : {};
+
+    const file = productImageFile.files[0];
+    if (file) {
+      const dataUrl = await readImageFile(file);
+      const prefix = `data:${file.type};base64,`;
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith(prefix)) {
+        throw new Error('Не удалось подготовить изображение к загрузке.');
+      }
+
+      const upload = await api('/api/seller/uploads', {
+        method: 'POST',
+        body: JSON.stringify({
+          contentType: file.type,
+          data: dataUrl.slice(prefix.length)
+        })
+      });
+      data.imageUrl = upload.imageUrl;
+    }
+
+    await api('/api/seller/products', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+
+    form.reset();
+    productImagePreview.hidden = true;
+    productImagePreview.removeAttribute('src');
+    if (productPreviewUrl) URL.revokeObjectURL(productPreviewUrl);
+    productPreviewUrl = null;
+    flash('Товар добавлен.');
+    await loadSeller();
+  } catch (error) {
+    const message = error instanceof SyntaxError
+      ? 'Характеристики должны быть корректным JSON-объектом.'
+      : error.message;
+    flash(message, true);
+  } finally {
+    submit.disabled = false;
+  }
+});
+async function loadSellerOrders() {
+  const host = $('#seller-orders');
+  try {
+    const orders = await api('/api/seller/orders');
+    clear(host);
+    if (!orders.length) {
+      host.append(node('p', 'muted', 'Новых частей заказа нет.'));
+      return;
+    }
+    orders.forEach(p => {
+      const c = card(`${p.number} · ${p.customer_name}`, `${p.created_at?new Date(p.created_at).toLocaleDateString('ru-RU'):''} · `),
+      head = node('div', 'inline-actions');
+      head.append(statusTag(p.status));
+      c.append(head);
+      (p.items || []).forEach(i => c.append(node('p', '', `${i.name} · ${i.quantity} ${i.unit} · ${money(i.lineTotal)}`)));
+      const actions = node('div', 'inline-actions');
+      const allowed = {
+        pending_seller: [
+          [
+            'Подтвердить',
+            'confirmed'
+          ],
+          [
+            'Отменить',
+            'cancelled'
+          ]
+        ],
+        confirmed: [
+          [
+            'Готовится',
+            'preparing'
+          ],
+          [
+            'Подтвердить готовность к передаче',
+            'ready'
+          ],
+          [
+            'Отменить',
+            'cancelled'
+          ]
+        ],
+        preparing: [
+          [
+            'Подтвердить готовность к передаче',
+            'ready'
+          ],
+          [
+            'Отменить',
+            'cancelled'
+          ]
+        ]
+      };
+      (allowed[p.status] || []).forEach(([
+        label,
+        status
+      ]) => actions.append(button(label, status === 'cancelled' ? 'button-danger': 'button-primary', async () => {
+        const r = await run(() => api(`/api/seller/parts/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status
+          })
+        }));
+        if (r) {
+          flash('Статус заказа изменён.');
+          loadSeller();
+        }
+      })));
+      c.append(actions);
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+async function loadSellerStats() {
+  const host = $('#seller-stats');
+  try {
+    const data = await api('/api/seller/stats');
+    clear(host);
+    [
+      [
+        'Заказов',
+        data.summary.orders
+      ],
+      [
+        'Продано единиц',
+        data.summary.units_sold
+      ],
+      [
+        'Сумма продаж',
+        money(data.summary.sales)
+      ],
+      [
+        'Низкий остаток',
+        data.lowStock.length
+      ]
+    ].forEach(([
+      label,
+      value
+    ]) => {
+      const c = node('div', 'stat-card');
+      c.append(node('strong', '', String(value)), node('span', '', label));
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'muted', e.message));
+  }
+}
+$('#refresh-seller').addEventListener('click', loadSeller);
+async function loadAdmin() {
+  await Promise.all([
+    loadAdminOverview(),
+    loadAdminStores(),
+    loadAdminOrders(),
+    loadAdminReturns(),
+    loadAdminUsers(),
+    loadAdminCategories()
+  ]);
+}
+async function loadAdminOverview() {
+  const host = $('#admin-stats');
+  try {
+    const d = await api('/api/admin/overview');
+    clear(host);
+    [
+      [
+        'Магазинов',
+        d.stores
+      ],
+      [
+        'Активных товаров',
+        d.products
+      ],
+      [
+        'Заявок на возврат',
+        d.openReturns
+      ],
+      [
+        'Заказов',
+        d.orders.reduce((s, x) => s + x.count, 0)
+      ]
+    ].forEach(([
+      label,
+      value
+    ]) => {
+      const c = node('div', 'stat-card');
+      c.append(node('strong', '', String(value)), node('span', '', label));
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'muted', e.message));
+  }
+}
+async function loadAdminStores() {
+  const host = $('#admin-stores'),
+  select = $('#seller-store');
+  try {
+    const stores = await api('/api/admin/stores');
+    clear(host);
+    clear(select);
+    stores.forEach(s => {
+      const c = card(s.name, `${s.slug} · ${s.address||'Адрес не указан'} · ${s.is_active?'активен':'заблокирован'}`),
+      b = button(s.is_active ? 'Заблокировать': 'Активировать', s.is_active ? 'button-danger': 'button-outline', async () => {
+        const r = await run(() => api(`/api/admin/stores/${s.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            isActive: !s.is_active
+          })
+        }));
+        if (r) loadAdminStores();
+      });
+      c.append(b);
+      host.append(c);
+      if (s.is_active) {
+        const o = node('option', '', s.name);
+        o.value = s.id;
+        select.append(o);
+      }
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+$('#store-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const r = await run(() => api('/api/admin/stores', {
+    method: 'POST',
+    body: JSON.stringify(formObject(e.currentTarget))
+  }));
+  if (r) {
+    e.currentTarget.reset();
+    flash('Магазин подключён.');
+    loadAdmin();
+  }
+});
+$('#seller-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = formObject(e.currentTarget);
+  data.storeId = Number(data.storeId);
+  const r = await run(() => api('/api/admin/sellers', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }));
+  if (r) {
+    e.currentTarget.reset();
+    flash('Учётная запись продавца создана.');
+    loadAdminUsers();
+  }
+});
+async function loadAdminOrders() {
+  const host = $('#admin-orders');
+  try {
+    const rows = await api('/api/admin/orders');
+    clear(host);
+    if (!rows.length) {
+      host.append(node('p', 'muted', 'Заказов пока нет.'));
+      return;
+    }
+    rows.forEach(o => {
+      const c = card(`${o.number} · ${o.customer_name}`, `${orderStatus[o.status]||o.status} · ${money(o.total)} · ${o.address}`),
+      actions = node('div', 'inline-actions');
+      const events = {
+        awaiting_hub: [
+          [
+            'Подтвердить приём на склад',
+            'received_at_hub'
+          ]
+        ],
+        awaiting_payment: o.payment_method === 'cash_on_delivery' ? [
+          [
+            'Подтвердить приём на склад',
+            'received_at_hub'
+          ]
+        ]: [],
+        partially_confirmed: [
+          [
+            'Подтвердить приём на склад',
+            'received_at_hub'
+          ]
+        ],
+        at_hub: [
+          [
+            'Подтвердить передачу в доставку',
+            'shipped'
+          ]
+        ],
+        shipped: [
+          [
+            'Зафиксировать доставку покупателю',
+            'delivered'
+          ],
+          ...(o.payment_method === 'cash_on_delivery' && o.payment_status !== 'paid' ? [
+            [
+              'Получена наличная оплата',
+              'cash_received'
+            ]
+          ]: [])
+        ],
+        delivered: [
+          [
+            'Завершить вручную',
+            'admin_completed'
+          ]
+        ]
+      };
+      (events[o.status] || []).forEach(([
+        label,
+        eventType
+      ]) => actions.append(button(label, 'button-outline', async () => {
+        const r = await run(() => api(`/api/admin/orders/${o.id}/delivery`, {
+          method: 'POST',
+          body: JSON.stringify({
+            eventType
+          })
+        }));
+        if (r) {
+          flash('Статус доставки записан.');
+          loadAdminOrders();
+        }
+      })));
+      c.append(actions);
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+async function loadAdminReturns() {
+  const host = $('#admin-returns');
+  try {
+    const rows = await api('/api/admin/returns');
+    clear(host);
+    if (!rows.length) {
+      host.append(node('p', 'muted', 'Заявок на возврат нет.'));
+      return;
+    }
+    rows.forEach(x => {
+      const c = card(`${x.number} · ${x.product_name} · ${x.customer_name}`, `${x.reason} · ${x.description||''} · ${x.status}`);
+      if (x.status === 'pending') {
+        const actions = node('div', 'inline-actions');
+        for (const [
+          label,
+          status
+        ] of [
+          [
+            'Одобрить',
+            'approved'
+          ],
+          [
+            'Отклонить',
+            'rejected'
+          ]
+        ]) actions.append(button(label, status === 'approved' ? 'button-primary': 'button-danger', async () => {
+          const comment = prompt('Комментарий администратора:', '') || '';
+          const r = await run(() => api(`/api/admin/returns/${x.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              status,
+              comment
+            })
+          }));
+          if (r) {
+            flash('Решение по возврату сохранено.');
+            loadAdminReturns();
+          }
+        }));
+        c.append(actions);
+      }
+      if (x.status === 'approved' && x.payment_method === 'cash_on_delivery' && !x.refund_recorded) c.append(button('Зафиксировать возврат денег', 'button-outline', async () => {
+        const r = await run(() => api(`/api/admin/returns/${x.id}/refund`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        }));
+        if (r) {
+          flash('Наличный возврат зафиксирован.');
+          loadAdminReturns();
+        }
+      }));
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'notice error', e.message));
+  }
+}
+async function loadAdminUsers() {
+  const host = $('#admin-users');
+  try {
+    const rows = await api('/api/admin/users');
+    clear(host);
+    rows.forEach(u => {
+      const c = card(`${u.full_name} · ${u.role}`, `${u.email} · ${u.is_active?'активен':'заблокирован'}`);
+      if (u.id !== user.id) c.append(button(u.is_active ? 'Заблокировать': 'Разблокировать', u.is_active ? 'button-danger': 'button-outline', async () => {
+        const r = await run(() => api(`/api/admin/users/${u.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            isActive: !u.is_active
+          })
+        }));
+        if (r) loadAdminUsers();
+      }));
+      host.append(c);
+    });
+  } catch (e) {
+    clear(host);
+    host.append(node('p', 'muted', e.message));
+  }
+}
+async function loadAdminCategories() {
+  try {
+    let host = $('#admin-categories');
+    if (!host) {
+      host = node('div', 'stack-list');
+      host.id = 'admin-categories';
+      const parent = $('#admin-panel .dashboard-grid section:last-child');
+      const heading = node('h3', '', 'Категории');
+      const add = button('Добавить категорию', 'button-outline', async () => {
+        const name = prompt('Название категории:');
+        if (!name) return;
+        const r = await run(() => api('/api/admin/categories', {
+          method: 'POST',
+          body: JSON.stringify({
+            name
+          })
+        }));
+        if (r) loadAdminCategories();
+      });
+      parent.append(heading, add, host);
+    }
+    const rows = await api('/api/admin/categories');
+    clear(host);
+    rows.forEach(x => {
+      const c = card(x.name, x.is_active ? 'активна': 'скрыта');
+      c.append(button(x.is_active ? 'Скрыть': 'Включить', 'button-outline', async () => {
+        const r = await run(() => api(`/api/admin/categories/${x.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            isActive: !x.is_active
+          })
+        }));
+        if (r) loadAdminCategories();
+      }));
+      host.append(c);
+    });
+  } catch (e) {
+    const host = $('#admin-categories');
+    if (host) host.append(node('p', 'muted', e.message));
+  }
+}
+$('#shipping-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = formObject(e.currentTarget);
+  data.baseFee = Number(data.baseFee);
+  data.perKg = Number(data.perKg);
+  data.maxWeightKg = Number(data.maxWeightKg);
+  data.cityZoneFee = Number(data.cityZoneFee);
+  data.regionZoneFee = Number(data.regionZoneFee);
+  data.maxDimensionCm = Number(data.maxDimensionCm);
+  data.maxVolumeM3 = Number(data.maxVolumeM3);
+  const r = await run(() => api('/api/admin/shipping', {
+    method: 'PATCH',
+    body: JSON.stringify(data)
+  }));
+  if (r) flash('Тариф доставки сохранён.');
+});
+$('#refresh-admin').addEventListener('click', loadAdmin);
+$('#setup-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = await run(() => api('/api/setup/admin', {
+    method: 'POST',
+    body: JSON.stringify(formObject(e.currentTarget))
+  }));
+  if (result) {
+    csrfToken = result.csrfToken;
+    user = result.user;
+    setupRequired = false;
+    renderAuth();
+    flash('Администратор создан. Теперь можно подключать магазины и продавцов.');
+  }
+});
+setup();

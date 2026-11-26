@@ -1,15 +1,291 @@
-const express=require('express');
-const pool=require('../db');
-const {roles,fail,numeric,validateText,tx,notify,releaseReservations}=require('../lib/http');
-const router=express.Router();
-router.get('/cart',roles('customer'),async(req,res)=>{const r=await pool.query(`SELECT ci.product_id,ci.quantity,p.name,p.price,p.stock,p.image_url,p.weight_kg,p.length_cm,p.width_cm,p.height_cm,u.short_name AS unit_name,s.id AS store_id,s.name AS store_name,(p.price*ci.quantity)::numeric(12,2) line_total FROM carts c JOIN cart_items ci ON ci.cart_id=c.id JOIN products p ON p.id=ci.product_id JOIN units u ON u.id=p.unit_id JOIN stores s ON s.id=p.store_id WHERE c.user_id=$1 ORDER BY s.name,p.name`,[req.user.id]);res.json(r.rows);});
-router.post('/cart',roles('customer'),async(req,res)=>{const productId=numeric(req.body.productId,'товар',1),quantity=numeric(req.body.quantity,'количество',0.001,100000);await tx(async db=>{const p=await db.query('SELECT id,stock,is_active FROM products WHERE id=$1 FOR UPDATE',[productId]);if(!p.rowCount||!p.rows[0].is_active)fail(404,'Товар недоступен.');const cart=(await db.query('INSERT INTO carts(user_id) VALUES($1) ON CONFLICT(user_id) DO UPDATE SET updated_at=now() RETURNING id',[req.user.id])).rows[0];const old=await db.query('SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2',[cart.id,productId]);const total=quantity+(old.rowCount?Number(old.rows[0].quantity):0);if(total>Number(p.rows[0].stock))fail(409,'На складе недостаточно товара.');await db.query('INSERT INTO cart_items(cart_id,product_id,quantity) VALUES($1,$2,$3) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=EXCLUDED.quantity,added_at=now()',[cart.id,productId,total]);});res.status(201).json({ok:true});});
-router.patch('/cart/:productId',roles('customer'),async(req,res)=>{const quantity=numeric(req.body.quantity,'количество',0.001,100000);const r=await pool.query(`UPDATE cart_items ci SET quantity=$3 FROM carts c,products p WHERE c.id=ci.cart_id AND c.user_id=$1 AND ci.product_id=$2 AND p.id=ci.product_id AND p.stock >= $3 RETURNING ci.product_id`,[req.user.id,Number(req.params.productId),quantity]);if(!r.rowCount)fail(409,'Проверьте товар и доступный остаток.');res.json({ok:true});});
-router.delete('/cart/:productId',roles('customer'),async(req,res)=>{await pool.query('DELETE FROM cart_items ci USING carts c WHERE ci.cart_id=c.id AND c.user_id=$1 AND ci.product_id=$2',[req.user.id,Number(req.params.productId)]);res.json({ok:true});});
-router.post('/orders',roles('customer'),async(req,res)=>{const address=validateText(req.body.address,500,'адрес'),phone=validateText(req.body.phone,30,'телефон'),method=String(req.body.paymentMethod||''),zone=String(req.body.deliveryZone||'city');if(!['online_demo','cash_on_delivery'].includes(method))fail(400,'Выберите способ оплаты.');if(!['city','region'].includes(zone))fail(400,'Выберите зону доставки.');const order=await tx(async db=>{const items=await db.query(`SELECT p.id,p.store_id,p.sku,p.name,p.price,p.stock,ci.quantity,u.short_name unit_name,p.weight_kg,p.length_cm,p.width_cm,p.height_cm FROM carts c JOIN cart_items ci ON ci.cart_id=c.id JOIN products p ON p.id=ci.product_id JOIN units u ON u.id=p.unit_id WHERE c.user_id=$1 AND p.is_active=TRUE ORDER BY p.id FOR UPDATE OF p`,[req.user.id]);if(!items.rowCount)fail(400,'Корзина пуста.');for(const p of items.rows)if(Number(p.quantity)>Number(p.stock))fail(409,`Недостаточно товара «${p.name}» на складе.`);const weight=items.rows.reduce((sum,p)=>sum+Number(p.weight_kg||0)*Number(p.quantity),0),volume=items.rows.reduce((sum,p)=>sum+(Number(p.length_cm||0)*Number(p.width_cm||0)*Number(p.height_cm||0)*Number(p.quantity))/1000000,0),maxSide=items.rows.reduce((m,p)=>Math.max(m,Number(p.length_cm||0),Number(p.width_cm||0),Number(p.height_cm||0)),0);const cfg=(await db.query("SELECT value FROM app_settings WHERE key='shipping'")).rows[0]?.value||{base_fee:450,per_kg:15,max_weight_kg:200,zones:{city:0,region:350},max_dimension_cm:300,max_volume_m3:2};if(weight>Number(cfg.max_weight_kg||200)||maxSide>Number(cfg.max_dimension_cm||300)||volume>Number(cfg.max_volume_m3||2))fail(422,'Вес или габариты заказа превышают лимит стандартной доставки. Требуется решение администратора.');const zoneFee=Number((cfg.zones||{city:0,region:350})[zone]||0),subtotal=items.rows.reduce((sum,p)=>sum+Number(p.price)*Number(p.quantity),0),shipping=Number(cfg.base_fee||0)+zoneFee+weight*Number(cfg.per_kg||0),number=`SM-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${require('crypto').randomBytes(3).toString('hex').toUpperCase()}`;const o=(await db.query(`INSERT INTO orders(number,customer_id,status,payment_method,address,contact_phone,delivery_zone,items_total,shipping_total,total) VALUES($1,$2,'awaiting_sellers',$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[number,req.user.id,method,address,phone,zone,subtotal,shipping,subtotal+shipping])).rows[0];const groups=new Map();for(const p of items.rows){if(!groups.has(p.store_id))groups.set(p.store_id,[]);groups.get(p.store_id).push(p);}for(const [storeId,products] of groups){const total=products.reduce((sum,p)=>sum+Number(p.price)*Number(p.quantity),0),part=(await db.query('INSERT INTO order_parts(order_id,store_id,items_total) VALUES($1,$2,$3) RETURNING id',[o.id,storeId,total])).rows[0];for(const p of products)await db.query('INSERT INTO order_items(part_id,product_id,product_name,sku,unit_name,unit_price,quantity,line_total) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[part.id,p.id,p.name,p.sku,p.unit_name,p.price,p.quantity,Number(p.price)*Number(p.quantity)]);const sellers=await db.query('SELECT user_id FROM seller_stores WHERE store_id=$1',[storeId]);for(const s of sellers.rows)await notify(db,s.user_id,'Новый заказ',`Поступила часть заказа ${number}.`);}await db.query('INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,$2,$3,$4)',[o.id,'awaiting_sellers',req.user.id,'Заказ оформлен']);await db.query('DELETE FROM cart_items ci USING carts c WHERE ci.cart_id=c.id AND c.user_id=$1',[req.user.id]);await notify(db,req.user.id,'Заказ оформлен',`Заказ ${number} передан магазинам на подтверждение.`);return o;});res.status(201).json(order);});
-router.get('/orders',roles('customer'),async(req,res)=>{const r=await pool.query(`SELECT o.*,(SELECT json_agg(json_build_object('id',op.id,'store',s.name,'status',op.status,'itemsTotal',op.items_total,'items',(SELECT json_agg(json_build_object('id',oi.id,'name',oi.product_name,'sku',oi.sku,'quantity',oi.quantity,'unit',oi.unit_name,'price',oi.unit_price,'lineTotal',oi.line_total)) FROM order_items oi WHERE oi.part_id=op.id)) ORDER BY op.id) FROM order_parts op JOIN stores s ON s.id=op.store_id WHERE op.order_id=o.id) parts FROM orders o WHERE o.customer_id=$1 ORDER BY o.created_at DESC`,[req.user.id]);res.json(r.rows);});
-router.post('/orders/:id/pay',roles('customer'),async(req,res)=>{const result=await tx(async db=>{const q=await db.query('SELECT * FROM orders WHERE id=$1 AND customer_id=$2 FOR UPDATE',[Number(req.params.id),req.user.id]);if(!q.rowCount)fail(404,'Заказ не найден.');const o=q.rows[0];if(o.payment_method!=='online_demo')fail(400,'Для заказа выбрана оплата при получении.');const parts=await db.query("SELECT count(*) FILTER(WHERE status='pending_seller') pending,count(*) FILTER(WHERE status<>'cancelled') active FROM order_parts WHERE order_id=$1",[o.id]);if(Number(parts.rows[0].pending)>0||!Number(parts.rows[0].active))fail(409,'Дождитесь ответа всех магазинов.');await db.query("INSERT INTO payments(order_id,operation,method,status,amount) VALUES($1,'payment','online_demo','succeeded',$2)",[o.id,o.total]);await db.query("UPDATE orders SET payment_status='paid',status='awaiting_hub',updated_at=now() WHERE id=$1",[o.id]);await db.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'awaiting_hub',$2,'Демо-оплата зафиксирована')",[o.id,req.user.id]);await notify(db,o.customer_id,'Оплата зафиксирована',`Оплата заказа ${o.number} отмечена как успешная (учебная имитация).`);return{ok:true,paymentStatus:'paid'};});res.json(result);});
-router.post('/orders/:id/cancel',roles('customer'),async(req,res)=>{const reason=validateText(req.body.reason,200,'причина отмены');await tx(async db=>{const q=await db.query('SELECT * FROM orders WHERE id=$1 AND customer_id=$2 FOR UPDATE',[Number(req.params.id),req.user.id]);if(!q.rowCount)fail(404,'Заказ не найден.');const o=q.rows[0];if(['shipped','delivered','completed','cancelled'].includes(o.status))fail(409,'Заказ в этом статусе нельзя отменить самостоятельно.');const parts=await db.query("SELECT id FROM order_parts WHERE order_id=$1 AND status<>'cancelled' FOR UPDATE",[o.id]);for(const p of parts.rows){await releaseReservations(db,p.id);await db.query("UPDATE order_parts SET status='cancelled',cancel_reason=$2,updated_at=now() WHERE id=$1",[p.id,reason]);}if(o.payment_status==='paid'){await db.query("INSERT INTO payments(order_id,operation,method,status,amount) VALUES($1,'refund','online_demo','succeeded',$2)",[o.id,o.total]);await db.query("UPDATE orders SET payment_status='refunded' WHERE id=$1",[o.id]);}await db.query("UPDATE orders SET status='cancelled',updated_at=now() WHERE id=$1",[o.id]);await db.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'cancelled',$2,$3)",[o.id,req.user.id,reason]);});res.json({ok:true});});
-router.post('/orders/:id/confirm-received',roles('customer'),async(req,res)=>{const r=await pool.query("UPDATE orders SET status='completed',updated_at=now() WHERE id=$1 AND customer_id=$2 AND status='delivered' RETURNING id",[Number(req.params.id),req.user.id]);if(!r.rowCount)fail(409,'Подтвердить можно только доставленный заказ.');await pool.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'completed',$2,'Покупатель подтвердил получение')",[r.rows[0].id,req.user.id]);res.json({ok:true});});
-router.post('/orders/:id/reorder',roles('customer'),async(req,res)=>{const result=await tx(async db=>{const items=await db.query(`SELECT oi.product_id,oi.quantity FROM orders o JOIN order_parts op ON op.order_id=o.id JOIN order_items oi ON oi.part_id=op.id JOIN products p ON p.id=oi.product_id AND p.is_active=TRUE AND p.stock>=oi.quantity WHERE o.id=$1 AND o.customer_id=$2`,[Number(req.params.id),req.user.id]);if(!items.rowCount)fail(400,'Нет доступных товаров для повторного заказа.');const c=(await db.query('INSERT INTO carts(user_id) VALUES($1) ON CONFLICT(user_id) DO UPDATE SET updated_at=now() RETURNING id',[req.user.id])).rows[0];for(const i of items.rows)await db.query('INSERT INTO cart_items(cart_id,product_id,quantity) VALUES($1,$2,$3) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=cart_items.quantity+EXCLUDED.quantity',[c.id,i.product_id,i.quantity]);return{added:items.rowCount};});res.json(result);});
-module.exports=router;
+const express = require('express');
+const pool = require('../db');
+const {
+  roles,
+  fail,
+  numeric,
+  validateText,
+  tx,
+  notify,
+  releaseReservations
+} = require('../lib/http');
+const router = express.Router();
+router.get('/cart', roles('customer'), async (req, res) => {
+  const r = await pool.query(`SELECT ci.product_id,ci.quantity,p.name,p.price,p.stock,p.image_url,p.weight_kg,p.length_cm,p.width_cm,p.height_cm,u.short_name AS unit_name,s.id AS store_id,s.name AS store_name,(p.price*ci.quantity)::numeric(12,2) line_total FROM carts c JOIN cart_items ci ON ci.cart_id=c.id JOIN products p ON p.id=ci.product_id JOIN units u ON u.id=p.unit_id JOIN stores s ON s.id=p.store_id WHERE c.user_id=$1 ORDER BY s.name,p.name`, [
+    req.user.id
+  ]);
+  res.json(r.rows);
+});
+router.post('/cart', roles('customer'), async (req, res) => {
+  const productId = numeric(req.body.productId, 'товар', 1),
+  quantity = numeric(req.body.quantity, 'количество', 0.001, 100000);
+  await tx(async db => {
+    const p = await db.query('SELECT id,stock,is_active FROM products WHERE id=$1 FOR UPDATE', [
+      productId
+    ]);
+    if (!p.rowCount || !p.rows[0].is_active) fail(404, 'Товар недоступен.');
+    const cart = (await db.query('INSERT INTO carts(user_id) VALUES($1) ON CONFLICT(user_id) DO UPDATE SET updated_at=now() RETURNING id', [
+      req.user.id
+    ])).rows[0];
+    const old = await db.query('SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2', [
+      cart.id,
+      productId
+    ]);
+    const total = quantity + (old.rowCount ? Number(old.rows[0].quantity): 0);
+    if (total > Number(p.rows[0].stock)) fail(409, 'На складе недостаточно товара.');
+    await db.query('INSERT INTO cart_items(cart_id,product_id,quantity) VALUES($1,$2,$3) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=EXCLUDED.quantity,added_at=now()', [
+      cart.id,
+      productId,
+      total
+    ]);
+  });
+  res.status(201).json({
+    ok: true
+  });
+});
+router.patch('/cart/:productId', roles('customer'), async (req, res) => {
+  const quantity = numeric(req.body.quantity, 'количество', 0.001, 100000);
+  const r = await pool.query(`UPDATE cart_items ci SET quantity=$3 FROM carts c,products p WHERE c.id=ci.cart_id AND c.user_id=$1 AND ci.product_id=$2 AND p.id=ci.product_id AND p.stock >= $3 RETURNING ci.product_id`, [
+    req.user.id,
+    Number(req.params.productId),
+    quantity
+  ]);
+  if (!r.rowCount) fail(409, 'Проверьте товар и доступный остаток.');
+  res.json({
+    ok: true
+  });
+});
+router.delete('/cart/:productId', roles('customer'), async (req, res) => {
+  await pool.query('DELETE FROM cart_items ci USING carts c WHERE ci.cart_id=c.id AND c.user_id=$1 AND ci.product_id=$2', [
+    req.user.id,
+    Number(req.params.productId)
+  ]);
+  res.json({
+    ok: true
+  });
+});
+router.post('/orders', roles('customer'), async (req, res) => {
+  const address = validateText(req.body.address, 500, 'адрес'),
+  phone = validateText(req.body.phone, 30, 'телефон'),
+  method = String(req.body.paymentMethod || ''),
+  zone = String(req.body.deliveryZone || 'city');
+  if (! [
+    'online_demo',
+    'cash_on_delivery'
+  ].includes(method)) fail(400, 'Выберите способ оплаты.');
+  if (! [
+    'city',
+    'region'
+  ].includes(zone)) fail(400, 'Выберите зону доставки.');
+  const order = await tx(async db => {
+    const items = await db.query(`SELECT p.id,p.store_id,p.sku,p.name,p.price,p.stock,ci.quantity,u.short_name unit_name,p.weight_kg,p.length_cm,p.width_cm,p.height_cm FROM carts c JOIN cart_items ci ON ci.cart_id=c.id JOIN products p ON p.id=ci.product_id JOIN units u ON u.id=p.unit_id WHERE c.user_id=$1 AND p.is_active=TRUE ORDER BY p.id FOR UPDATE OF p`, [
+      req.user.id
+    ]);
+    if (!items.rowCount) fail(400, 'Корзина пуста.');
+    for (const p of items.rows) if (Number(p.quantity) > Number(p.stock)) fail(409, `Недостаточно товара «${p.name}» на складе.`);
+    const weight = items.rows.reduce((sum, p) => sum + Number(p.weight_kg || 0) * Number(p.quantity), 0),
+    volume = items.rows.reduce((sum, p) => sum + (Number(p.length_cm || 0) * Number(p.width_cm || 0) * Number(p.height_cm || 0) * Number(p.quantity)) / 1000000, 0),
+    maxSide = items.rows.reduce((m, p) => Math.max(m, Number(p.length_cm || 0), Number(p.width_cm || 0), Number(p.height_cm || 0)), 0);
+    const cfg = (await db.query("SELECT value FROM app_settings WHERE key='shipping'")).rows[0]?.value || {
+      base_fee: 450,
+      per_kg: 15,
+      max_weight_kg: 200,
+      zones: {
+        city: 0,
+        region: 350
+      },
+      max_dimension_cm: 300,
+      max_volume_m3: 2
+    };
+    if (weight > Number(cfg.max_weight_kg || 200) || maxSide > Number(cfg.max_dimension_cm || 300) || volume > Number(cfg.max_volume_m3 || 2)) fail(422, 'Вес или габариты заказа превышают лимит стандартной доставки. Требуется решение администратора.');
+    const zoneFee = Number((cfg.zones || {
+      city: 0,
+      region: 350
+    })[zone] || 0),
+    subtotal = items.rows.reduce((sum, p) => sum + Number(p.price) * Number(p.quantity), 0),
+    shipping = Number(cfg.base_fee || 0) + zoneFee + weight * Number(cfg.per_kg || 0),
+    number = `SM-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${require('crypto').randomBytes(3).toString('hex').toUpperCase()}`;
+    const o = (await db.query(`INSERT INTO orders(number,customer_id,status,payment_method,address,contact_phone,delivery_zone,items_total,shipping_total,total) VALUES($1,$2,'awaiting_sellers',$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [
+      number,
+      req.user.id,
+      method,
+      address,
+      phone,
+      zone,
+      subtotal,
+      shipping,
+      subtotal + shipping
+    ])).rows[0];
+    const groups = new Map();
+    for (const p of items.rows) {
+      if (!groups.has(p.store_id)) groups.set(p.store_id, []);
+      groups.get(p.store_id).push(p);
+    }
+    for (const [
+      storeId,
+      products
+    ] of groups) {
+      const total = products.reduce((sum, p) => sum + Number(p.price) * Number(p.quantity), 0),
+      part = (await db.query('INSERT INTO order_parts(order_id,store_id,items_total) VALUES($1,$2,$3) RETURNING id', [
+        o.id,
+        storeId,
+        total
+      ])).rows[0];
+      for (const p of products) await db.query('INSERT INTO order_items(part_id,product_id,product_name,sku,unit_name,unit_price,quantity,line_total) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [
+        part.id,
+        p.id,
+        p.name,
+        p.sku,
+        p.unit_name,
+        p.price,
+        p.quantity,
+        Number(p.price) * Number(p.quantity)
+      ]);
+      const sellers = await db.query('SELECT user_id FROM seller_stores WHERE store_id=$1', [
+        storeId
+      ]);
+      for (const s of sellers.rows) await notify(db, s.user_id, 'Новый заказ', `Поступила часть заказа ${number}.`);
+    }
+    await db.query('INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,$2,$3,$4)', [
+      o.id,
+      'awaiting_sellers',
+      req.user.id,
+      'Заказ оформлен'
+    ]);
+    await db.query('DELETE FROM cart_items ci USING carts c WHERE ci.cart_id=c.id AND c.user_id=$1', [
+      req.user.id
+    ]);
+    await notify(db, req.user.id, 'Заказ оформлен', `Заказ ${number} передан магазинам на подтверждение.`);
+    return o;
+  });
+  res.status(201).json(order);
+});
+router.get('/orders', roles('customer'), async (req, res) => {
+  const r = await pool.query(`SELECT o.*,(SELECT json_agg(json_build_object('id',op.id,'store',s.name,'status',op.status,'itemsTotal',op.items_total,'items',(SELECT json_agg(json_build_object('id',oi.id,'name',oi.product_name,'sku',oi.sku,'quantity',oi.quantity,'unit',oi.unit_name,'price',oi.unit_price,'lineTotal',oi.line_total)) FROM order_items oi WHERE oi.part_id=op.id)) ORDER BY op.id) FROM order_parts op JOIN stores s ON s.id=op.store_id WHERE op.order_id=o.id) parts FROM orders o WHERE o.customer_id=$1 ORDER BY o.created_at DESC`, [
+    req.user.id
+  ]);
+  res.json(r.rows);
+});
+router.post('/orders/:id/pay', roles('customer'), async (req, res) => {
+  const result = await tx(async db => {
+    const q = await db.query('SELECT * FROM orders WHERE id=$1 AND customer_id=$2 FOR UPDATE', [
+      Number(req.params.id),
+      req.user.id
+    ]);
+    if (!q.rowCount) fail(404, 'Заказ не найден.');
+    const o = q.rows[0];
+    if (o.payment_method !== 'online_demo') fail(400, 'Для заказа выбрана оплата при получении.');
+    const parts = await db.query("SELECT count(*) FILTER(WHERE status='pending_seller') pending,count(*) FILTER(WHERE status<>'cancelled') active FROM order_parts WHERE order_id=$1", [
+      o.id
+    ]);
+    if (Number(parts.rows[0].pending) > 0 || !Number(parts.rows[0].active)) fail(409, 'Дождитесь ответа всех магазинов.');
+    await db.query("INSERT INTO payments(order_id,operation,method,status,amount) VALUES($1,'payment','online_demo','succeeded',$2)", [
+      o.id,
+      o.total
+    ]);
+    await db.query("UPDATE orders SET payment_status='paid',status='awaiting_hub',updated_at=now() WHERE id=$1", [
+      o.id
+    ]);
+    await db.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'awaiting_hub',$2,'Демо-оплата зафиксирована')", [
+      o.id,
+      req.user.id
+    ]);
+    await notify(db, o.customer_id, 'Оплата зафиксирована', `Оплата заказа ${o.number} отмечена как успешная (учебная имитация).`);
+    return {
+      ok: true,
+      paymentStatus: 'paid'
+    };
+  });
+  res.json(result);
+});
+router.post('/orders/:id/cancel', roles('customer'), async (req, res) => {
+  const reason = validateText(req.body.reason, 200, 'причина отмены');
+  await tx(async db => {
+    const q = await db.query('SELECT * FROM orders WHERE id=$1 AND customer_id=$2 FOR UPDATE', [
+      Number(req.params.id),
+      req.user.id
+    ]);
+    if (!q.rowCount) fail(404, 'Заказ не найден.');
+    const o = q.rows[0];
+    if ([
+      'shipped',
+      'delivered',
+      'completed',
+      'cancelled'
+    ].includes(o.status)) fail(409, 'Заказ в этом статусе нельзя отменить самостоятельно.');
+    const parts = await db.query("SELECT id FROM order_parts WHERE order_id=$1 AND status<>'cancelled' FOR UPDATE", [
+      o.id
+    ]);
+    for (const p of parts.rows) {
+      await releaseReservations(db, p.id);
+      await db.query("UPDATE order_parts SET status='cancelled',cancel_reason=$2,updated_at=now() WHERE id=$1", [
+        p.id,
+        reason
+      ]);
+    }
+    if (o.payment_status === 'paid') {
+      await db.query("INSERT INTO payments(order_id,operation,method,status,amount) VALUES($1,'refund','online_demo','succeeded',$2)", [
+        o.id,
+        o.total
+      ]);
+      await db.query("UPDATE orders SET payment_status='refunded' WHERE id=$1", [
+        o.id
+      ]);
+    }
+    await db.query("UPDATE orders SET status='cancelled',updated_at=now() WHERE id=$1", [
+      o.id
+    ]);
+    await db.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'cancelled',$2,$3)", [
+      o.id,
+      req.user.id,
+      reason
+    ]);
+  });
+  res.json({
+    ok: true
+  });
+});
+router.post('/orders/:id/confirm-received', roles('customer'), async (req, res) => {
+  await tx(async db => {
+    const r = await db.query('SELECT id,status FROM orders WHERE id=$1 AND customer_id=$2 FOR UPDATE', [
+      Number(req.params.id),
+      req.user.id
+    ]);
+    if (!r.rowCount || r.rows[0].status !== 'delivered') {
+      fail(409, 'Подтвердить можно только доставленный заказ.');
+    }
+
+    await db.query("UPDATE orders SET status='completed',updated_at=now() WHERE id=$1", [
+      r.rows[0].id
+    ]);
+    await db.query("INSERT INTO order_status_history(order_id,new_status,changed_by,comment) VALUES($1,'completed',$2,'Покупатель подтвердил получение')", [
+      r.rows[0].id,
+      req.user.id
+    ]);
+  });
+  res.json({
+    ok: true
+  });
+});
+router.post('/orders/:id/reorder', roles('customer'), async (req, res) => {
+  const result = await tx(async db => {
+    const items = await db.query(`SELECT oi.product_id,oi.quantity FROM orders o JOIN order_parts op ON op.order_id=o.id JOIN order_items oi ON oi.part_id=op.id JOIN products p ON p.id=oi.product_id AND p.is_active=TRUE AND p.stock>=oi.quantity WHERE o.id=$1 AND o.customer_id=$2`, [
+      Number(req.params.id),
+      req.user.id
+    ]);
+    if (!items.rowCount) fail(400, 'Нет доступных товаров для повторного заказа.');
+    const c = (await db.query('INSERT INTO carts(user_id) VALUES($1) ON CONFLICT(user_id) DO UPDATE SET updated_at=now() RETURNING id', [
+      req.user.id
+    ])).rows[0];
+    for (const i of items.rows) await db.query('INSERT INTO cart_items(cart_id,product_id,quantity) VALUES($1,$2,$3) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=cart_items.quantity+EXCLUDED.quantity', [
+      c.id,
+      i.product_id,
+      i.quantity
+    ]);
+    return {
+      added: items.rowCount
+    };
+  });
+  res.json(result);
+});
+module.exports = router;

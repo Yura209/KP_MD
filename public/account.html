@@ -1,11 +1,227 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Кабинет — СтройМаркет</title><link rel="stylesheet" href="css/style.css"><script src="js/account.js" defer></script></head>
-<body><header class="site-header"><div class="container header-row"><a class="brand" href="/">Строй<span>Маркет</span></a><nav><a href="/">Магазины</a><a href="/account.html">Кабинет</a></nav><span id="header-user" class="muted"></span></div></header>
-<main class="section account-page"><div class="container"><div class="section-heading"><div><p class="eyebrow">ЛИЧНЫЙ КАБИНЕТ</p><h1 id="page-title">Вход или регистрация</h1></div><a class="back-link" href="/">← К магазинам</a></div><p id="flash" class="notice" hidden></p>
-<section id="auth-area" class="auth-grid"><form id="login-form" class="panel form-stack"><h2>Войти</h2><label>Электронная почта<input name="email" type="email" autocomplete="email" required></label><label>Пароль<input name="password" type="password" autocomplete="current-password" required></label><button class="button button-primary">Войти</button></form><form id="register-form" class="panel form-stack"><h2>Создать аккаунт покупателя</h2><label>Имя<input name="fullName" autocomplete="name" required maxlength="120"></label><label>Электронная почта<input name="email" type="email" autocomplete="email" required></label><label>Телефон<input name="phone" type="tel" autocomplete="tel"></label><label>Пароль<input name="password" type="password" minlength="10" autocomplete="new-password" required><small>Не менее 10 символов.</small></label><button class="button button-primary">Зарегистрироваться</button></form></section>
-<section id="setup-area" class="panel form-stack" hidden><p class="eyebrow">ПЕРВЫЙ ЗАПУСК</p><h2>Создать администратора</h2><p class="muted">Форма доступна один раз и только при обращении с этого компьютера. Задайте пароль длиной не менее 12 символов.</p><form id="setup-form" class="form-stack"><label>Имя<input name="fullName" required></label><label>Email<input name="email" type="email" required></label><label>Пароль<input name="password" type="password" minlength="12" required></label><button class="button button-primary">Создать администратора</button></form></section><section id="profile-area" hidden><div class="profile-bar panel"><div><p class="eyebrow">ВЫ ВОШЛИ КАК</p><strong id="profile-name"></strong><span id="profile-role" class="role-badge"></span></div><button id="logout-button" class="button button-outline">Выйти</button></div>
-<section id="customer-panel" class="role-panel" hidden><div class="section-heading"><div><p class="eyebrow">ПОКУПКА</p><h2>Ваша корзина</h2></div><button id="refresh-customer" class="button button-outline">Обновить</button></div><div id="cart-list" class="panel-list"></div><form id="checkout-form" class="panel form-grid"><h3>Оформление общего заказа</h3><label class="wide">Адрес доставки<input name="address" required maxlength="500"></label><label>Телефон для связи<input name="phone" required maxlength="30"></label><label>Зона доставки<select name="deliveryZone"><option value="city">Калуга, город</option><option value="region">Калужская область</option></select></label><label>Способ оплаты<select name="paymentMethod"><option value="online_demo">Онлайн-оплата (учебная имитация)</option><option value="cash_on_delivery">Наличными при получении</option></select></label><p class="wide muted" id="cart-total"></p><button class="button button-primary">Оформить заказ</button></form>
-<div class="dashboard-grid"><section><h3>История заказов</h3><div id="orders-list" class="stack-list"></div></section><section><h3>Избранное и сравнение</h3><div class="inline-actions"><button id="show-favorites" class="button button-outline">Избранное</button><button id="show-comparison" class="button button-outline">Сравнение</button></div><div id="saved-list" class="stack-list"></div></section></div><section><h3>Уведомления</h3><div id="notifications-list" class="stack-list"></div></section><section><h3>Заявки на возврат</h3><div id="returns-list" class="stack-list"></div></section></section>
-<section id="seller-panel" class="role-panel" hidden><div class="section-heading"><div><p class="eyebrow">МАГАЗИН ПРОДАВЦА</p><h2>Управление магазином</h2></div><button id="refresh-seller" class="button button-outline">Обновить</button></div><div id="seller-stats" class="stat-row"></div><div class="dashboard-grid"><section><h3>Товары</h3><div id="seller-products" class="stack-list"></div><form id="product-form" class="panel form-stack"><h3>Добавить товар</h3><label>Название<input name="name" required></label><label>Артикул<input name="sku" required></label><div class="form-grid"><label>Цена<input name="price" type="number" min="0" step="0.01" required></label><label>Остаток<input name="stock" type="number" min="0" step="0.001" required></label><label>Категория<select name="categoryId" id="product-category" required></select></label><label>Единица продажи<select name="unitId" id="product-unit" required></select></label></div><label>Описание<textarea name="description" rows="3"></textarea></label><label>Технические характеристики (JSON)<textarea name="characteristics" rows="3" placeholder="{&quot;толщина&quot;:&quot;8 мм&quot;}"></textarea><small>Формат: объект JSON с названиями характеристик и значениями.</small></label><button class="button button-primary">Сохранить товар</button></form></section><section><h3>Части заказов</h3><div id="seller-orders" class="stack-list"></div></section></div></section>
-<section id="admin-panel" class="role-panel" hidden><div class="section-heading"><div><p class="eyebrow">УПРАВЛЕНИЕ ПЛОЩАДКОЙ</p><h2>Панель администратора</h2></div><button id="refresh-admin" class="button button-outline">Обновить</button></div><div id="admin-stats" class="stat-row"></div><div class="dashboard-grid"><section><h3>Магазины</h3><div id="admin-stores" class="stack-list"></div><form id="store-form" class="panel form-stack"><h3>Подключить магазин</h3><label>Код (латиницей)<input name="slug" required pattern="[a-z0-9-]+"></label><label>Название<input name="name" required></label><label>Описание<textarea name="description" rows="2"></textarea></label><label>Адрес<input name="address"></label><label>Телефон<input name="phone"></label><button class="button button-primary">Создать магазин</button></form><form id="seller-form" class="panel form-stack"><h3>Создать продавца</h3><label>Имя<input name="fullName" required></label><label>Email<input name="email" type="email" required></label><label>Пароль<input name="password" type="password" minlength="10" required></label><label>Магазин<select name="storeId" id="seller-store" required></select></label><button class="button button-primary">Создать аккаунт</button></form></section><section><h3>Заказы и доставка</h3><div id="admin-orders" class="stack-list"></div><h3>Заявки на возврат</h3><div id="admin-returns" class="stack-list"></div><h3>Пользователи</h3><div id="admin-users" class="stack-list"></div><form id="shipping-form" class="panel form-grid"><h3 class="wide">Тариф доставки</h3><label>Базовый тариф, ₽<input name="baseFee" type="number" min="0" step="0.01" value="450"></label><label>За 1 кг, ₽<input name="perKg" type="number" min="0" step="0.01" value="15"></label><label>Максимальный вес, кг<input name="maxWeightKg" type="number" min="1" value="200"></label><label>Тариф по городу, ₽<input name="cityZoneFee" type="number" min="0" step="0.01" value="0"></label><label>Тариф по области, ₽<input name="regionZoneFee" type="number" min="0" step="0.01" value="350"></label><label>Максимальная сторона, см<input name="maxDimensionCm" type="number" min="1" value="300"></label><label>Максимальный объём, м³<input name="maxVolumeM3" type="number" min="0.001" step="0.01" value="2"></label><button class="button button-outline">Сохранить тариф</button></form></section></div></section>
-</section></div></main><footer class="site-footer"><div class="container footer-row"><a class="brand brand-light" href="/">Строй<span>Маркет</span></a><p>Учебный проект · Данные хранятся в PostgreSQL</p></div></footer></body></html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Кабинет — СтройМаркет</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/navigation.js" defer></script>
+    <script src="js/account.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-row">
+        <a class="brand" href="/">Строй<span>Маркет</span></a>
+        <nav>
+          <a href="/">Магазины</a>
+        </nav>
+        <a class="button button-outline cart-link" href="/cart.html">Корзина <span class="cart-count" data-cart-count hidden>0</span></a>
+        <a class="button button-dark" data-account-link href="/account.html">Войти</a>
+        <span id="header-user" class="muted"></span>
+      </div>
+    </header>
+
+    <main class="section account-page">
+      <div class="container">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ЛИЧНЫЙ КАБИНЕТ</p>
+            <h1 id="page-title">Вход или регистрация</h1>
+          </div>
+          <a class="back-link" href="/">← К магазинам</a>
+        </div>
+
+        <p id="flash" class="notice" hidden></p>
+
+        <section id="auth-area" class="auth-grid">
+          <form id="login-form" class="panel form-stack">
+            <h2>Войти</h2>
+            <label>Электронная почта<input name="email" type="email" autocomplete="email" required></label>
+            <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+            <button class="button button-primary">Войти</button>
+          </form>
+
+          <form id="register-form" class="panel form-stack">
+            <h2>Создать аккаунт покупателя</h2>
+            <label>Имя<input name="fullName" autocomplete="name" required maxlength="120"></label>
+            <label>Электронная почта<input name="email" type="email" autocomplete="email" required></label>
+            <label>Телефон<input name="phone" type="tel" autocomplete="tel"></label>
+            <label>Пароль<input name="password" type="password" minlength="10" autocomplete="new-password" required><small>Не менее 10 символов.</small></label>
+            <button class="button button-primary">Зарегистрироваться</button>
+          </form>
+        </section>
+
+        <section id="setup-area" class="panel form-stack" hidden>
+          <p class="eyebrow">ПЕРВЫЙ ЗАПУСК</p>
+          <h2>Создать администратора</h2>
+          <p class="muted">Форма доступна один раз и только при обращении с этого компьютера. Задайте пароль длиной не менее 12 символов.</p>
+          <form id="setup-form" class="form-stack">
+            <label>Имя<input name="fullName" required></label>
+            <label>Email<input name="email" type="email" required></label>
+            <label>Пароль<input name="password" type="password" minlength="12" required></label>
+            <button class="button button-primary">Создать администратора</button>
+          </form>
+        </section>
+
+        <section id="profile-area" hidden>
+          <div class="profile-bar panel">
+            <div>
+              <p class="eyebrow">ВЫ ВОШЛИ КАК</p>
+              <strong id="profile-name"></strong>
+              <span id="profile-role" class="role-badge"></span>
+            </div>
+            <button id="logout-button" class="button button-outline">Выйти</button>
+          </div>
+
+          <section id="customer-panel" class="role-panel" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ПОКУПАТЕЛЬ</p>
+                <h2>Ваши заказы</h2>
+              </div>
+              <div class="inline-actions">
+                <a class="button button-primary" href="/cart.html">Открыть корзину</a>
+                <button id="refresh-customer" class="button button-outline">Обновить данные</button>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <section>
+                <h3>История заказов</h3>
+                <div id="orders-list" class="stack-list"></div>
+              </section>
+              <section>
+                <h3>Избранное и сравнение</h3>
+                <div class="inline-actions">
+                  <button id="show-favorites" class="button button-outline">Избранное</button>
+                  <button id="show-comparison" class="button button-outline">Сравнение</button>
+                </div>
+                <div id="saved-list" class="stack-list"></div>
+              </section>
+            </div>
+
+            <section>
+              <h3>Уведомления</h3>
+              <div id="notifications-list" class="stack-list"></div>
+            </section>
+
+            <section>
+              <h3>Заявки на возврат</h3>
+              <div id="returns-list" class="stack-list"></div>
+            </section>
+          </section>
+
+          <section id="seller-panel" class="role-panel" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">МАГАЗИН ПРОДАВЦА</p>
+                <h2>Управление магазином</h2>
+              </div>
+              <button id="refresh-seller" class="button button-outline">Обновить</button>
+            </div>
+
+            <div id="seller-stats" class="stat-row"></div>
+
+            <div class="dashboard-grid">
+              <section>
+                <h3>Товары</h3>
+                <div id="seller-products" class="stack-list"></div>
+
+                <form id="product-form" class="panel form-stack">
+                  <h3>Добавить товар</h3>
+                  <label>Название<input name="name" required></label>
+                  <label>Артикул<input name="sku" required></label>
+                  <div class="form-grid">
+                    <label>Цена<input name="price" type="number" min="0" step="0.01" required></label>
+                    <label>Остаток<input name="stock" type="number" min="0" step="0.001" required></label>
+                    <label>Категория<select name="categoryId" id="product-category" required></select></label>
+                    <label>Единица продажи<select name="unitId" id="product-unit" required></select></label>
+                  </div>
+                  <label>Описание<textarea name="description" rows="3"></textarea></label>
+                  <label>Технические характеристики (JSON)<textarea name="characteristics" rows="3" placeholder="{&quot;толщина&quot;:&quot;8 мм&quot;}"></textarea><small>Формат: объект JSON с названиями характеристик и значениями.</small></label>
+                  <label>Ссылка на изображение<input name="imageUrl" type="url" placeholder="https://example.ru/image.jpg"></label>
+                  <label>Или выберите файл (PNG, JPEG или WebP, до 2 МБ)<input id="product-image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                  <img id="product-image-preview" class="product-image-preview" alt="Предпросмотр изображения товара" hidden>
+                  <button type="submit" class="button button-primary">Сохранить товар</button>
+                </form>
+              </section>
+
+              <section>
+                <h3>Части заказов</h3>
+                <div id="seller-orders" class="stack-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="admin-panel" class="role-panel" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">УПРАВЛЕНИЕ ПЛОЩАДКОЙ</p>
+                <h2>Панель администратора</h2>
+              </div>
+              <button id="refresh-admin" class="button button-outline">Обновить</button>
+            </div>
+
+            <div id="admin-stats" class="stat-row"></div>
+
+            <div class="dashboard-grid">
+              <section>
+                <h3>Магазины</h3>
+                <div id="admin-stores" class="stack-list"></div>
+
+                <form id="store-form" class="panel form-stack">
+                  <h3>Подключить магазин</h3>
+                  <label>Код (латиницей)<input name="slug" required pattern="[a-z0-9-]+"></label>
+                  <label>Название<input name="name" required></label>
+                  <label>Описание<textarea name="description" rows="2"></textarea></label>
+                  <label>Адрес<input name="address"></label>
+                  <label>Телефон<input name="phone"></label>
+                  <button class="button button-primary">Создать магазин</button>
+                </form>
+
+                <form id="seller-form" class="panel form-stack">
+                  <h3>Создать продавца</h3>
+                  <label>Имя<input name="fullName" required></label>
+                  <label>Email<input name="email" type="email" required></label>
+                  <label>Пароль<input name="password" type="password" minlength="10" required></label>
+                  <label>Магазин<select name="storeId" id="seller-store" required></select></label>
+                  <button class="button button-primary">Создать аккаунт</button>
+                </form>
+              </section>
+
+              <section>
+                <h3>Заказы и доставка</h3>
+                <div id="admin-orders" class="stack-list"></div>
+
+                <h3>Заявки на возврат</h3>
+                <div id="admin-returns" class="stack-list"></div>
+
+                <h3>Пользователи</h3>
+                <div id="admin-users" class="stack-list"></div>
+
+                <form id="shipping-form" class="panel form-grid">
+                  <h3 class="wide">Тариф доставки</h3>
+                  <label>Базовый тариф, ₽<input name="baseFee" type="number" min="0" step="0.01" value="450"></label>
+                  <label>За 1 кг, ₽<input name="perKg" type="number" min="0" step="0.01" value="15"></label>
+                  <label>Максимальный вес, кг<input name="maxWeightKg" type="number" min="1" value="200"></label>
+                  <label>Тариф по городу, ₽<input name="cityZoneFee" type="number" min="0" step="0.01" value="0"></label>
+                  <label>Тариф по области, ₽<input name="regionZoneFee" type="number" min="0" step="0.01" value="350"></label>
+                  <label>Максимальная сторона, см<input name="maxDimensionCm" type="number" min="1" value="300"></label>
+                  <label>Максимальный объём, м³<input name="maxVolumeM3" type="number" min="0.001" step="0.01" value="2"></label>
+                  <button class="button button-outline">Сохранить тариф</button>
+                </form>
+              </section>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <a class="brand brand-light" href="/">Строй<span>Маркет</span></a>
+        <p>Учебный проект · Данные хранятся в PostgreSQL</p>
+      </div>
+    </footer>
+  </body>
+</html>

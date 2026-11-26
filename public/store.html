@@ -1,8 +1,59 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Каталог магазина — СтройМаркет</title><link rel="stylesheet" href="css/style.css"><script src="js/store.js" defer></script></head>
-<body><header class="site-header"><div class="container header-row"><a class="brand" href="/">Строй<span>Маркет</span></a><nav><a href="/">Магазины</a><a href="/account.html">Корзина и кабинет</a></nav><a class="button button-dark" href="/account.html">Войти</a></div></header>
-<main class="section catalog-page"><div class="container"><a class="back-link" href="/#stores">← Все магазины</a><div class="store-intro"><p class="eyebrow">КАТАЛОГ МАГАЗИНА</p><h1 id="store-title">Магазин</h1><p id="store-description" class="muted"></p></div>
-<div class="catalog-tools"><label class="search-field">Поиск<input id="search-input" type="search" placeholder="Название, артикул или бренд"></label><label>Цена от<input id="min-price" type="number" min="0" step="0.01" placeholder="₽"></label><label>Цена до<input id="max-price" type="number" min="0" step="0.01" placeholder="₽"></label><label>Ключ характеристики<input id="characteristic-key" placeholder="толщина"></label><label>Значение<input id="characteristic-value" placeholder="8 мм"></label><label>Категория<select id="category-filter"><option value="">Все категории</option></select></label><label>Сортировать<select id="sort-filter"><option value="name">По названию</option><option value="price_asc">Сначала дешевле</option><option value="price_desc">Сначала дороже</option><option value="rating">По рейтингу</option><option value="popular">По популярности</option></select></label><label class="check-field"><input id="stock-filter" type="checkbox"> В наличии</label></div>
-<div class="product-grid" id="product-list" aria-live="polite"><p class="muted">Загрузка каталога…</p></div><p id="empty-message" class="notice" hidden>По заданным условиям товары не найдены.</p><p id="catalog-error" class="notice error" hidden>Не удалось загрузить товары.</p></div></main>
-<footer class="site-footer"><div class="container footer-row"><a class="brand brand-light" href="/">Строй<span>Маркет</span></a><p>Цены указаны в рублях за единицу продажи.</p></div></footer></body></html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Каталог магазина — СтройМаркет</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/navigation.js" defer></script>
+    <script src="js/store.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-row">
+        <a class="brand" href="/">Строй<span>Маркет</span></a>
+        <nav>
+          <a href="/">Магазины</a>
+        </nav>
+        <a class="button button-outline cart-link" href="/cart.html">Корзина <span class="cart-count" data-cart-count hidden>0</span></a>
+        <a class="button button-dark" data-account-link href="/account.html">Войти</a>
+      </div>
+    </header>
+
+    <main class="section catalog-page">
+      <div class="container">
+        <a class="back-link" href="/#stores">← Все магазины</a>
+
+        <div class="store-intro">
+          <p class="eyebrow">КАТАЛОГ МАГАЗИНА</p>
+          <h1 id="store-title">Магазин</h1>
+          <p id="store-description" class="muted"></p>
+        </div>
+
+        <div class="catalog-tools">
+          <label class="search-field">Поиск<input id="search-input" type="search" placeholder="Название, артикул или бренд"></label>
+          <label>Цена от<input id="min-price" type="number" min="0" step="0.01" placeholder="₽"></label>
+          <label>Цена до<input id="max-price" type="number" min="0" step="0.01" placeholder="₽"></label>
+          <label>Ключ характеристики<input id="characteristic-key" placeholder="толщина"></label>
+          <label>Значение<input id="characteristic-value" placeholder="8 мм"></label>
+          <label>Категория<select id="category-filter"><option value="">Все категории</option></select></label>
+          <label>Сортировать<select id="sort-filter"><option value="name">По названию</option><option value="price_asc">Сначала дешевле</option><option value="price_desc">Сначала дороже</option><option value="rating">По рейтингу</option><option value="popular">По популярности</option></select></label>
+          <label class="check-field"><input id="stock-filter" type="checkbox"> В наличии</label>
+        </div>
+
+        <div class="product-grid" id="product-list" aria-live="polite">
+          <p class="muted">Загрузка каталога…</p>
+        </div>
+        <p id="empty-message" class="notice" hidden>По заданным условиям товары не найдены.</p>
+        <p id="catalog-error" class="notice error" hidden>Не удалось загрузить товары.</p>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <a class="brand brand-light" href="/">Строй<span>Маркет</span></a>
+        <p>Цены указаны в рублях за единицу продажи.</p>
+      </div>
+    </footer>
+  </body>
+</html>
